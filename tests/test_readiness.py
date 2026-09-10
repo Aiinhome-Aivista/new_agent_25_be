@@ -1,5 +1,5 @@
 import pytest
-from backend.app.agents.push_readiness_engine import PushReadinessEngine
+from app.agents.push_readiness_engine import PushReadinessEngine
 
 def test_push_readiness_clean_code():
     res = PushReadinessEngine.evaluate(

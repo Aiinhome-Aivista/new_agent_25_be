@@ -1,8 +1,8 @@
 from flask import Blueprint, request, jsonify
-from backend.app.rag.standards_store import standards_store
-from backend.app.core.database import SessionLocal
-from backend.app.models.entities import CodingStandard
-from backend.app.core.logging_config import logger
+from app.rag.standards_store import standards_store
+from app.core.database import SessionLocal
+from app.models.entities import CodingStandard
+from app.core.logging_config import logger
 
 standards_bp = Blueprint("standards", __name__, url_prefix="/api/v1/standards")
 

@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
-from backend.app.tools.git_tool import GitTool, ChangedFile
-from backend.app.core.config import config
+from app.tools.git_tool import GitTool, ChangedFile
+from app.core.config import config
 
 class DiffContextAgent:
     """Analyzes Git diff, identifies changed files, extracts affected code hunks, and computes diff hash."""

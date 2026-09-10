@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
-from backend.app.llm.provider import LLMProvider
-from backend.app.llm.prompts import SUMMARY_FEEDBACK_PROMPT
+from app.llm.provider import LLMProvider
+from app.llm.prompts import SUMMARY_FEEDBACK_PROMPT
 
 class FeedbackAgent:
     """Generates structured review summaries and formats inline code comments."""

@@ -1,8 +1,8 @@
 from flask import Blueprint, request, jsonify
-from backend.app.agents.orchestrator import ReviewOrchestrator
-from backend.app.core.database import SessionLocal
-from backend.app.models.entities import ReviewSession, ReviewFinding, MissingTest, PassedCheck, AcceptanceCriteriaCheck, ReviewAuditLog
-from backend.app.core.logging_config import logger
+from app.agents.orchestrator import ReviewOrchestrator
+from app.core.database import SessionLocal
+from app.models.entities import ReviewSession, ReviewFinding, MissingTest, PassedCheck, AcceptanceCriteriaCheck, ReviewAuditLog
+from app.core.logging_config import logger
 
 review_bp = Blueprint("reviews", __name__, url_prefix="/api/v1/reviews")
 

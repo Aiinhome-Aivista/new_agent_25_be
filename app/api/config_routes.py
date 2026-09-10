@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
-from backend.app.core.config import config
-from backend.app.core.database import is_sqlite_fallback
+from app.core.config import config
+from app.core.database import is_sqlite_fallback
 
 config_bp = Blueprint("config", __name__, url_prefix="/api/v1/config")
 

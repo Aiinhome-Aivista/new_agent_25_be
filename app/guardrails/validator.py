@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Set
-from backend.app.schemas.review_schemas import GroundedIssueSchema
-from backend.app.tools.secret_scanner import SecretScanner
-from backend.app.tools.git_tool import ChangedFile
+from app.schemas.review_schemas import GroundedIssueSchema
+from app.tools.secret_scanner import SecretScanner
+from app.tools.git_tool import ChangedFile
 
 class FindingValidator:
     """Validates that AI-generated and deterministic issues are strictly grounded in observed diff context."""

@@ -1,5 +1,5 @@
 import pytest
-from backend.app.agents.orchestrator import ReviewOrchestrator
+from app.agents.orchestrator import ReviewOrchestrator
 
 SAMPLE_DIFF_CLEAN = """diff --git a/src/main/java/com/example/CustomerService.java b/src/main/java/com/example/CustomerService.java
 new file mode 100644

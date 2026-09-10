@@ -1,12 +1,12 @@
 import json
 from typing import Dict, Any, List
-from backend.app.llm.provider import LLMProvider
-from backend.app.llm.prompts import CODE_QUALITY_PROMPT
-from backend.app.rag.standards_store import standards_store
-from backend.app.tools.secret_scanner import SecretScanner
-from backend.app.tools.sast_scanner import SASTScanner
-from backend.app.guardrails.validator import FindingValidator
-from backend.app.tools.git_tool import ChangedFile
+from app.llm.provider import LLMProvider
+from app.llm.prompts import CODE_QUALITY_PROMPT
+from app.rag.standards_store import standards_store
+from app.tools.secret_scanner import SecretScanner
+from app.tools.sast_scanner import SASTScanner
+from app.guardrails.validator import FindingValidator
+from app.tools.git_tool import ChangedFile
 
 class CodeQualityAgent:
     """Evaluates code quality, architectural standards, security rules, and error handling."""

@@ -1,8 +1,8 @@
 import json
 from typing import Dict, Any, List
-from backend.app.llm.provider import LLMProvider
-from backend.app.llm.prompts import TEST_COVERAGE_PROMPT
-from backend.app.tools.git_tool import ChangedFile
+from app.llm.provider import LLMProvider
+from app.llm.prompts import TEST_COVERAGE_PROMPT
+from app.tools.git_tool import ChangedFile
 
 class TestCoverageAgent:
     """Analyzes test coverage in the diff and identifies missing edge case / unit test scenarios."""

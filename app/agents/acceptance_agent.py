@@ -1,8 +1,8 @@
 import json
 from typing import Dict, Any, List
-from backend.app.llm.provider import LLMProvider
-from backend.app.llm.prompts import ACCEPTANCE_CRITERIA_PROMPT
-from backend.app.guardrails.input_rails import InputRails
+from app.llm.provider import LLMProvider
+from app.llm.prompts import ACCEPTANCE_CRITERIA_PROMPT
+from app.guardrails.input_rails import InputRails
 
 class AcceptanceCriteriaAgent:
     """Parses user stories and acceptance criteria into structured, verifiable conditions."""

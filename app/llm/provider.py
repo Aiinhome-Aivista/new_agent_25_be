@@ -2,9 +2,9 @@ import json
 import re
 import requests
 from typing import Dict, Any, Optional
-from backend.app.core.config import config
-from backend.app.core.logging_config import logger
-from backend.app.tools.secret_scanner import SecretScanner
+from app.core.config import config
+from app.core.logging_config import logger
+from app.tools.secret_scanner import SecretScanner
 
 class LLMProvider:
     """Unified LLM interface supporting Google Gemini, Mistral Cloud, and Mistral Local."""

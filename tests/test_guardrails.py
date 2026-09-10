@@ -1,9 +1,9 @@
 import pytest
-from backend.app.tools.secret_scanner import SecretScanner
-from backend.app.tools.sast_scanner import SASTScanner
-from backend.app.guardrails.input_rails import InputRails
-from backend.app.guardrails.validator import FindingValidator
-from backend.app.tools.git_tool import ChangedFile, GitDiffHunk
+from app.tools.secret_scanner import SecretScanner
+from app.tools.sast_scanner import SASTScanner
+from app.guardrails.input_rails import InputRails
+from app.guardrails.validator import FindingValidator
+from app.tools.git_tool import ChangedFile, GitDiffHunk
 
 def test_secret_scanner_redaction():
     text = 'String apiKey = "AKIA1234567890EXAMPLE";'

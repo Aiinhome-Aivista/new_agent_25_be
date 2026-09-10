@@ -6,12 +6,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from flask import Flask, jsonify
 from flask_cors import CORS
-from backend.app.core.config import config
-from backend.app.core.database import init_db, is_sqlite_fallback
-from backend.app.core.logging_config import logger
-from backend.app.api.review_routes import review_bp
-from backend.app.api.standards_routes import standards_bp
-from backend.app.api.config_routes import config_bp
+from app.core.config import config
+from app.core.database import init_db, is_sqlite_fallback
+from app.core.logging_config import logger
+from app.api.review_routes import review_bp
+from app.api.standards_routes import standards_bp
+from app.api.config_routes import config_bp
 
 def create_app():
     app = Flask(__name__)

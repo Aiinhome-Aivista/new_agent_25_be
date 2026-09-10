@@ -1,8 +1,8 @@
 import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
-from backend.app.core.config import config
-from backend.app.core.logging_config import logger
+from app.core.config import config
+from app.core.logging_config import logger
 
 Base = declarative_base()
 engine = None
@@ -62,7 +62,7 @@ def init_db():
             raise e
 
     # Import models and create tables
-    from backend.app.models.entities import ReviewSession, AcceptanceCriteriaCheck, ReviewFinding, MissingTest, PassedCheck, CodingStandard, ReviewAuditLog
+    from app.models.entities import ReviewSession, AcceptanceCriteriaCheck, ReviewFinding, MissingTest, PassedCheck, CodingStandard, ReviewAuditLog
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables verified / created.")
 
