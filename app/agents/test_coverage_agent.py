@@ -2,6 +2,7 @@ import json
 from typing import Dict, Any, List
 from app.llm.provider import LLMProvider
 from app.llm.prompts import TEST_COVERAGE_PROMPT
+from app.rag.standards_store import standards_store
 from app.tools.git_tool import ChangedFile
 
 class TestCoverageAgent:
@@ -25,7 +26,12 @@ class TestCoverageAgent:
             else:
                 source_files_observed.append(cf.new_path or cf.old_path)
 
+        # Fetch testing specific standards
+        standards = standards_store.search_relevant_standards(query=raw_diff[:1000] + " testing test rules")
+        standards_text = "\n".join([f"- [{s['rule_code']}] {s['title']}: {s['description']}" for s in standards if "test" in s.get("category", "").lower() or "test" in s.get("title", "").lower()])
+
         prompt = TEST_COVERAGE_PROMPT.format(
+            standards_text=standards_text,
             criteria_json=json.dumps(acceptance_criteria, indent=2),
             diff_text=raw_diff[:6000]
         )

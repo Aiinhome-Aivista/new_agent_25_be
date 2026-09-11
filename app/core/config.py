@@ -31,7 +31,6 @@ class Config:
     MAX_CONTEXT_LINES = int(os.getenv("MAX_CONTEXT_LINES", 200))
     REDACT_SECRETS = os.getenv("REDACT_SECRETS", "True").lower() in ("true", "1", "yes")
     STRICT_GATEKEEPER = os.getenv("STRICT_GATEKEEPER", "True").lower() in ("true", "1", "yes")
-    FALLBACK_TO_SQLITE = os.getenv("FALLBACK_TO_SQLITE", "True").lower() in ("true", "1", "yes")
 
     @classmethod
     def get_database_uri(cls) -> str:

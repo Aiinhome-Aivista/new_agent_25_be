@@ -1,145 +1,157 @@
 from typing import List, Dict, Any, Optional
+import json
+from app.core.vector_db import get_standards_collection
+from app.core.logging_config import logger
 
-DEFAULT_STANDARDS = [
-    {
-        "rule_code": "STD-SEC-01",
-        "language": "java",
-        "framework": "spring-boot",
-        "category": "security",
-        "title": "Strict Input Validation with @Valid and Bean Validation",
-        "description": "All incoming HTTP request DTOs in Spring Boot controllers must be annotated with @Valid or @Validated and have constraint annotations like @NotNull, @NotBlank, @Size, @Email on fields.",
-        "bad_example": "public ResponseEntity<User> createUser(@RequestBody UserDto dto) { ... }",
-        "good_example": "public ResponseEntity<User> createUser(@Valid @RequestBody UserDto dto) { ... }",
-        "severity": "WARNING",
-        "is_blocking": False
-    },
-    {
-        "rule_code": "STD-SEC-02",
-        "language": "java",
-        "framework": "spring-boot",
-        "category": "security",
-        "title": "Prevention of SQL Injection via JPA/Hibernate Parameterization",
-        "description": "Always use named or positional parameters (:param, ?1) in JPA / JPQL queries. Never concatenate user input directly into SQL strings.",
-        "bad_example": "entityManager.createQuery(\"SELECT u FROM User u WHERE u.email = '\" + email + \"'\");",
-        "good_example": "entityManager.createQuery(\"SELECT u FROM User u WHERE u.email = :email\").setParameter(\"email\", email);",
-        "severity": "CRITICAL",
-        "is_blocking": True
-    },
-    {
-        "rule_code": "STD-ARCH-01",
-        "language": "java",
-        "framework": "spring-boot",
-        "category": "architecture",
-        "title": "Separation of Concerns: Controller vs Service vs Repository",
-        "description": "Controllers should only handle HTTP concerns, request routing, and basic response mapping. Business logic must reside in @Service beans.",
-        "bad_example": "@PostMapping public User create(@RequestBody User u) { db.save(u); sendEmail(u); return u; }",
-        "good_example": "@PostMapping public ResponseEntity<UserDto> create(@Valid @RequestBody CreateUserRequest req) { return ResponseEntity.ok(userService.create(req)); }",
-        "severity": "WARNING",
-        "is_blocking": False
-    },
-    {
-        "rule_code": "STD-TEST-01",
-        "language": "java",
-        "framework": "spring-boot",
-        "category": "testing",
-        "title": "Unit and Integration Testing with JUnit 5 & Mockito",
-        "description": "Every newly added public service method and controller endpoint must have corresponding JUnit 5 test methods covering happy path, negative path (invalid inputs), and exception branches.",
-        "bad_example": "// No test class or only empty test contextLoads()",
-        "good_example": "@Test void shouldThrowBadRequestWhenEmailIsInvalid() { ... }",
-        "severity": "WARNING",
-        "is_blocking": False
-    },
-    {
-        "rule_code": "STD-ERR-01",
-        "language": "java",
-        "framework": "spring-boot",
-        "category": "error-handling",
-        "title": "Global Exception Handling with @ControllerAdvice",
-        "description": "Use @RestControllerAdvice / @ExceptionHandler for uniform REST error responses (RFC 7807 Problem Details or standardized ErrorResponse DTO) instead of raw 500 stack traces.",
-        "bad_example": "catch(Exception e) { e.printStackTrace(); return null; }",
-        "good_example": "@RestControllerAdvice public class GlobalExceptionHandler { @ExceptionHandler(EntityNotFoundException.class) ... }",
-        "severity": "WARNING",
-        "is_blocking": False
-    },
-    {
-        "rule_code": "STD-PY-SEC-01",
-        "language": "python",
-        "framework": "flask",
-        "category": "security",
-        "title": "SQLAlchemy / DB-API Query Parameterization",
-        "description": "Never format raw SQL queries using f-strings or % formatting. Always use parameterized queries (bind parameters :param, %s) or ORM filter queries.",
-        "bad_example": "db.session.execute(f'SELECT * FROM users WHERE email = \"{email}\"')",
-        "good_example": "db.session.execute(text('SELECT * FROM users WHERE email = :email'), {'email': email})",
-        "severity": "CRITICAL",
-        "is_blocking": True
-    },
-    {
-        "rule_code": "STD-PY-QUAL-01",
-        "language": "python",
-        "framework": "flask",
-        "category": "quality",
-        "title": "Type Hinting and Pydantic DTO Schema Validation",
-        "description": "Use type annotations (PEP 484) and Pydantic v2 models / Marshmallow schemas to validate request payloads before processing.",
-        "bad_example": "data = request.get_json(); user_id = data['id']",
-        "good_example": "try:\n    payload = UserCreateSchema(**request.get_json())\nexcept ValidationError as e:\n    return jsonify(e.errors()), 400",
-        "severity": "WARNING",
-        "is_blocking": False
-    },
-    {
-        "rule_code": "STD-PY-TEST-01",
-        "language": "python",
-        "framework": "flask",
-        "category": "testing",
-        "title": "Automated Unit and Fixture Testing with Pytest",
-        "description": "Every endpoint and service module must have corresponding pytest test cases in tests/ covering success, validation rejection (400), and unauthorized access (401/403).",
-        "bad_example": "# No test_*.py files provided in repository",
-        "good_example": "def test_create_user_invalid_email(client):\n    res = client.post('/api/users', json={'email': 'bad'})\n    assert res.status_code == 400",
-        "severity": "WARNING",
-        "is_blocking": False
-    },
-    {
-        "rule_code": "STD-TS-QUAL-01",
-        "language": "typescript",
-        "framework": "react",
-        "category": "quality",
-        "title": "Strict TypeScript Typing (No any / unknown leak)",
-        "description": "Explicitly type React props, state hooks, and API responses. Avoid using `any` type in application boundaries.",
-        "bad_example": "const handleData = (data: any) => { ... }",
-        "good_example": "const handleData = (data: UserResponseDTO) => { ... }",
-        "severity": "WARNING",
-        "is_blocking": False
-    }
-]
+
 
 class StandardsStore:
-    """RAG repository for enterprise coding standards and best-practice rules."""
+    """RAG repository for enterprise coding standards and best-practice rules using ChromaDB."""
 
     def __init__(self):
-        self.standards: List[Dict[str, Any]] = list(DEFAULT_STANDARDS)
+        try:
+            self.collection = get_standards_collection()
+        except Exception as e:
+            logger.error(f"Failed to initialize ChromaDB collection: {e}")
+            self.collection = None
+
+    def sync_from_db(self):
+        """Seed ChromaDB from MySQL if empty."""
+        if not self.collection:
+            return
+
+        try:
+            if self.collection.count() == 0:
+                logger.info("ChromaDB is empty. Attempting to sync from MySQL...")
+                from app.core.database import SessionLocal
+                from app.models.entities import CodingStandard
+                
+                if not SessionLocal:
+                    logger.warning("SessionLocal not available, cannot sync from DB.")
+                    return
+                    
+                db = SessionLocal()
+                db_standards = db.query(CodingStandard).all()
+                
+                if db_standards:
+                    logger.info(f"Found {len(db_standards)} standards in MySQL. Seeding ChromaDB...")
+                    for std in db_standards:
+                        std_dict = {
+                            "rule_code": std.rule_code,
+                            "language": std.language,
+                            "framework": std.framework,
+                            "category": std.category,
+                            "title": std.title,
+                            "description": std.description,
+                            "bad_example": std.bad_example or "",
+                            "good_example": std.good_example or "",
+                            "severity": std.severity,
+                            "is_blocking": std.is_blocking,
+                            "version": std.version
+                        }
+                        self.add_standard(std_dict)
+                else:
+                    logger.info("MySQL has no standards. ChromaDB remains empty.")
+                db.close()
+        except Exception as e:
+            logger.error(f"Error syncing standards from DB: {e}")
 
     def search_relevant_standards(self, language: str = "java", framework: str = "spring-boot", query: str = "") -> List[Dict[str, Any]]:
-        """Retrieves matching approved standards based on language, framework, and diff content."""
-        results = []
-        q_lower = query.lower() if query else ""
+        """Retrieves matching approved standards based on language, framework, and diff content from ChromaDB."""
+        if not self.collection:
+            logger.warning("ChromaDB collection unavailable, returning empty list.")
+            return []
 
-        for std in self.standards:
-            lang_match = std["language"] in (language.lower(), "general", "all")
-            fw_match = std["framework"] in (framework.lower(), "all", "general")
+        where_filter = {}
+        if language and language.lower() not in ("all", "general", ""):
+             where_filter["language"] = language.lower()
 
-            if lang_match and fw_match:
-                # Check keyword relevance if query provided
-                if not q_lower:
-                    results.append(std)
-                else:
-                    keywords = [std["title"].lower(), std["category"].lower(), std["rule_code"].lower()]
-                    if any(k in q_lower for k in keywords) or "controller" in q_lower or "repository" in q_lower or "test" in q_lower:
-                        results.append(std)
-                    elif len(results) < 3:
-                        results.append(std) # include high-priority general baseline
+        # Build query texts. If no query, just use language/framework as query to get some results.
+        query_texts = [query] if query else [f"coding standards best practices for {language} {framework}"]
 
-        return results if results else self.standards[:4]
+        try:
+            # Query ChromaDB
+            results = self.collection.query(
+                query_texts=query_texts,
+                n_results=5,
+                where=where_filter if where_filter else None
+            )
+
+            standards = []
+            if results and results.get("metadatas") and results["metadatas"][0]:
+                for metadata in results["metadatas"][0]:
+                    # Convert string booleans back to bool
+                    if "is_blocking" in metadata:
+                        metadata["is_blocking"] = str(metadata["is_blocking"]).lower() == 'true'
+                    standards.append(metadata)
+            
+            return standards
+        except Exception as e:
+            logger.error(f"Error querying ChromaDB: {e}")
+            return []
 
     def add_standard(self, standard: Dict[str, Any]) -> None:
-        self.standards.append(standard)
+        if not self.collection:
+            return
+
+        rule_code = standard.get("rule_code")
+        if not rule_code:
+            return
+
+        # Prepare text for embedding
+        document = f"Title: {standard.get('title', '')}\nCategory: {standard.get('category', '')}\nDescription: {standard.get('description', '')}\nBad Example: {standard.get('bad_example', '')}\nGood Example: {standard.get('good_example', '')}"
+        
+        # Prepare metadata (ensure all values are primitives like str, int, float)
+        metadata = {
+            "rule_code": rule_code,
+            "language": (standard.get("language") or "general").lower(),
+            "framework": (standard.get("framework") or "general").lower(),
+            "category": (standard.get("category") or "quality").lower(),
+            "title": standard.get("title", ""),
+            "description": standard.get("description", ""),
+            "bad_example": standard.get("bad_example", ""),
+            "good_example": standard.get("good_example", ""),
+            "severity": standard.get("severity", "WARNING"),
+            "is_blocking": str(standard.get("is_blocking", False))
+        }
+
+        try:
+            self.collection.upsert(
+                ids=[rule_code],
+                documents=[document],
+                metadatas=[metadata]
+            )
+            logger.info(f"Added/Updated standard in ChromaDB: {rule_code}")
+        except Exception as e:
+            logger.error(f"Failed to add standard to ChromaDB: {e}")
+            
+    def get_all_standards(self) -> List[Dict[str, Any]]:
+        """Retrieve all rules for the frontend Knowledge Base UI."""
+        if not self.collection:
+            return []
+        
+        try:
+            results = self.collection.get()
+            standards = []
+            if results and results.get("metadatas"):
+                for metadata in results["metadatas"]:
+                    if "is_blocking" in metadata:
+                        metadata["is_blocking"] = str(metadata["is_blocking"]).lower() == 'true'
+                    standards.append(metadata)
+            return standards
+        except Exception as e:
+            logger.error(f"Error getting all standards from ChromaDB: {e}")
+            return []
+            
+    def delete_standard(self, rule_code: str) -> bool:
+        if not self.collection:
+            return False
+            
+        try:
+            self.collection.delete(ids=[rule_code])
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting standard from ChromaDB: {e}")
+            return False
 
 standards_store = StandardsStore()

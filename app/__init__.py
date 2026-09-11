@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 from flask import Flask, jsonify
 from flask_cors import CORS
 from app.core.config import config
-from app.core.database import init_db, is_sqlite_fallback
+from app.core.database import init_db
 from app.core.logging_config import logger
 from app.api.review_routes import review_bp
 from app.api.standards_routes import standards_bp
@@ -23,6 +23,8 @@ def create_app():
     # Initialize Database
     try:
         init_db()
+        from app.rag.standards_store import standards_store
+        standards_store.sync_from_db()
     except Exception as e:
         logger.error(f"Database initialization encountered an error: {e}")
 
@@ -36,8 +38,7 @@ def create_app():
         return jsonify({
             "status": "healthy",
             "service": "ai-code-review-agent",
-            "mode": config.MODE,
-            "database_fallback": is_sqlite_fallback
+            "mode": config.MODE
         }), 200
 
     @app.route("/ready", methods=["GET"])

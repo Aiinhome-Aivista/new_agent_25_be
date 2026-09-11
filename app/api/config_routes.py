@@ -1,6 +1,5 @@
 from flask import Blueprint, request, jsonify
 from app.core.config import config
-from app.core.database import is_sqlite_fallback
 
 config_bp = Blueprint("config", __name__, url_prefix="/api/v1/config")
 
@@ -17,7 +16,7 @@ def get_config():
         "mysql_port": config.MYSQL_PORT,
         "mysql_database": config.MYSQL_DATABASE,
         "mysql_user": config.MYSQL_USER,
-        "is_sqlite_fallback": is_sqlite_fallback,
+        "is_sqlite_fallback": False,
         "strict_gatekeeper": config.STRICT_GATEKEEPER,
         "redact_secrets": config.REDACT_SECRETS
     }), 200

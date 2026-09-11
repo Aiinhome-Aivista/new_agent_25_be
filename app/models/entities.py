@@ -212,7 +212,8 @@ class CodingStandard(Base):
             "good_example": self.good_example,
             "severity": self.severity,
             "is_blocking": self.is_blocking,
-            "version": self.version
+            "version": self.version,
+            "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
 class ReviewAuditLog(Base):

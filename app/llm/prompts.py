@@ -71,6 +71,9 @@ TEST_COVERAGE_PROMPT = """You are an automated Test Coverage Analysis Agent.
 Examine the following Git diff and acceptance criteria.
 Identify if adequate unit/integration tests exist in the changed code, and list missing test scenarios (happy path, negative path, edge cases, error conditions).
 
+Testing Standards / Rules:
+{standards_text}
+
 Acceptance Criteria:
 {criteria_json}
 

@@ -7,10 +7,9 @@ from app.core.logging_config import logger
 Base = declarative_base()
 engine = None
 SessionLocal = None
-is_sqlite_fallback = False
 
 def init_db():
-    global engine, SessionLocal, is_sqlite_fallback
+    global engine, SessionLocal
     
     mysql_uri = config.get_database_uri()
     try:
@@ -45,21 +44,10 @@ def init_db():
             conn.execute(text("SELECT 1"))
         
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        is_sqlite_fallback = False
         logger.info("Successfully connected to MySQL database.")
     except Exception as e:
         logger.error(f"MySQL connection failed or driver unavailable: {e}")
-        if config.FALLBACK_TO_SQLITE:
-            logger.warning("Falling back to local SQLite database (ai_code_review.db) for local execution reliability.")
-            sqlite_path = os.path.join(os.path.dirname(__file__), "..", "..", "ai_code_review.db")
-            engine = create_engine(
-                f"sqlite:///{sqlite_path}",
-                connect_args={"check_same_thread": False}
-            )
-            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-            is_sqlite_fallback = True
-        else:
-            raise e
+        raise e
 
     # Import models and create tables
     from app.models.entities import ReviewSession, AcceptanceCriteriaCheck, ReviewFinding, MissingTest, PassedCheck, CodingStandard, ReviewAuditLog
