@@ -53,6 +53,7 @@ Respond ONLY with a valid JSON object matching this schema:
       "category": "Quality", // Security, Acceptance Criteria, Quality, Standards, Error Handling
       "message": "Specific issue grounded in observed code.",
       "suggestion": "Actionable remediation advice.",
+      "fix_code": "Code snippet showing the exact fix (optional, use if applicable)",
       "evidence": "Observed code snippet from diff",
       "is_blocking": false
     }}

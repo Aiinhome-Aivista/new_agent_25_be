@@ -26,6 +26,7 @@ class GroundedIssueSchema(BaseModel):
     rule_id: Optional[str] = None
     message: str
     suggestion: str
+    fix_code: Optional[str] = None
     evidence: str
     is_blocking: Optional[bool] = False
     source_tool: Optional[str] = "agent"

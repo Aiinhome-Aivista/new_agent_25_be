@@ -108,6 +108,7 @@ class ReviewFinding(Base):
     message = Column(Text, nullable=False)
     suggestion = Column(Text, nullable=False)
     evidence = Column(Text, nullable=True)
+    fix_code = Column(Text, nullable=True)
     is_blocking = Column(Boolean, default=False)
     source_tool = Column(String(64), default="agent")
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
@@ -128,6 +129,7 @@ class ReviewFinding(Base):
             "rule_id": self.rule_id,
             "message": self.message,
             "suggestion": self.suggestion,
+            "fix_code": self.fix_code,
             "evidence": self.evidence,
             "is_blocking": self.is_blocking,
             "source_tool": self.source_tool,

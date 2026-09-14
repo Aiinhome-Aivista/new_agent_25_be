@@ -23,8 +23,8 @@ class ReviewOrchestrator:
         acceptance_criteria: str = "",
         repository_name: str = "workspace",
         branch: str = "main",
-        language: str = "java",
-        framework: str = "spring-boot",
+        language: Optional[str] = None,
+        framework: Optional[str] = None,
         author: str = "developer"
     ) -> Dict[str, Any]:
         start_time = time.time()
@@ -77,6 +77,28 @@ class ReviewOrchestrator:
                     "timestamp": datetime.utcnow().isoformat() + "Z"
                 }
             }
+
+        # Auto-detect language and framework from diff if not provided
+        if not language:
+            py_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".py"))
+            ts_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith((".ts", ".tsx", ".js", ".jsx")))
+            java_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".java"))
+            go_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".go"))
+            
+            if py_count > java_count and py_count > ts_count and py_count > go_count:
+                language = "python"
+                framework = framework or "flask"
+            elif ts_count > java_count and ts_count > py_count and ts_count > go_count:
+                language = "typescript"
+                framework = framework or "react"
+            elif go_count > java_count and go_count > py_count and go_count > ts_count:
+                language = "golang"
+                framework = framework or "standard"
+            else:
+                language = "java"
+                framework = framework or "spring-boot"
+        else:
+            framework = framework or "standard"
 
         # Step 3: Code Quality & Security Evaluation
         t0 = time.time()

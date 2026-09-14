@@ -15,8 +15,8 @@ def create_review():
         acceptance_criteria = data.get("acceptance_criteria", "")
         repository_name = data.get("repository_name", "workspace")
         branch = data.get("branch", "main")
-        language = data.get("language", "java")
-        framework = data.get("framework", "spring-boot")
+        language = data.get("language")
+        framework = data.get("framework")
         author = data.get("author", "developer")
 
         result = ReviewOrchestrator.run_review(

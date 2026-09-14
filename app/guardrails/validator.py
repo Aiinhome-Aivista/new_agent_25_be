@@ -63,6 +63,8 @@ class FindingValidator:
             # Check 3: Redact any accidental secret values in message or evidence
             message = SecretScanner.redact_text(str(finding.get("message", "")).strip())
             suggestion = SecretScanner.redact_text(str(finding.get("suggestion", "")).strip())
+            fix_code_val = finding.get("fix_code")
+            fix_code = SecretScanner.redact_text(str(fix_code_val).strip()) if fix_code_val else None
             evidence = SecretScanner.redact_text(str(finding.get("evidence", "")).strip())
             severity = str(finding.get("severity", "WARNING")).upper()
             if severity not in ("INFO", "WARNING", "ERROR", "CRITICAL"):
@@ -89,6 +91,7 @@ class FindingValidator:
                 rule_id=rule_id,
                 message=message,
                 suggestion=suggestion,
+                fix_code=fix_code,
                 evidence=evidence or "Observed in code diff",
                 is_blocking=is_blocking,
                 source_tool=finding.get("source_tool", "agent")

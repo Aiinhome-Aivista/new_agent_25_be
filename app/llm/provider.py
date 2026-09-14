@@ -41,8 +41,8 @@ class LLMProvider:
 
         if mode == "gemini":
             return cls._call_gemini(safe_prompt, system_prompt)
-        elif mode == "mistral":
-            return cls._call_mistral(safe_prompt, system_prompt)
+        elif mode == "mistral" or mode == "local":
+            return cls._call_mistral(safe_prompt, system_prompt, force_local=(mode == "local"))
         else:
             logger.info(f"Unknown MODE={config.MODE}, falling back to Gemini.")
             return cls._call_gemini(safe_prompt, system_prompt)
@@ -78,18 +78,18 @@ class LLMProvider:
                 text_content = data["candidates"][0]["content"]["parts"][0]["text"]
                 return cls._clean_json_response(text_content)
             else:
-                logger.warning(f"Gemini API returned status {resp.status_code}: {resp.text[:300]}")
-                # Fallback to local heuristic if network or quota issue
-                return cls._fallback_response(prompt)
+                error_msg = f"Gemini API returned status {resp.status_code}: {resp.text[:300]}"
+                logger.warning(error_msg)
+                raise Exception(error_msg)
         except Exception as e:
             logger.error(f"Error communicating with Gemini API: {e}")
-            return cls._fallback_response(prompt)
+            raise e
 
     @classmethod
-    def _call_mistral(cls, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    def _call_mistral(cls, prompt: str, system_prompt: Optional[str] = None, force_local: bool = False) -> Dict[str, Any]:
         """Calls Mistral Cloud or Local Mistral Endpoint."""
         # If Mistral API key is provided, use Cloud API, else check local endpoint
-        if config.MISTRAL_API_KEY:
+        if config.MISTRAL_API_KEY and not force_local:
             url = "https://api.mistral.ai/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {config.MISTRAL_API_KEY}",
@@ -121,11 +121,12 @@ class LLMProvider:
                 text_content = data["choices"][0]["message"]["content"]
                 return cls._clean_json_response(text_content)
             else:
-                logger.warning(f"Mistral API returned status {resp.status_code}: {resp.text[:300]}")
-                return cls._fallback_response(prompt)
+                error_msg = f"Mistral API returned status {resp.status_code}: {resp.text[:300]}"
+                logger.warning(error_msg)
+                raise Exception(error_msg)
         except Exception as e:
             logger.error(f"Error communicating with Mistral endpoint: {e}")
-            return cls._fallback_response(prompt)
+            raise e
 
     @classmethod
     def _fallback_response(cls, prompt: str) -> Dict[str, Any]:
