@@ -57,6 +57,32 @@ def add_standard():
         "is_blocking": data.get("is_blocking", False),
         "version": data.get("version", "1.0.0")
     }
+
+    # Validate rule using LLM
+    from app.llm.provider import LLMProvider
+    from app.llm.prompts import RULE_VALIDATION_PROMPT
+    
+    prompt = RULE_VALIDATION_PROMPT.format(
+        language=standard["language"],
+        framework=standard["framework"],
+        title=standard["title"],
+        description=standard["description"],
+        bad_example=standard["bad_example"],
+        good_example=standard["good_example"]
+    )
+    
+    try:
+        validation_result = LLMProvider.generate(prompt)
+        if not validation_result.get("is_valid", True):
+            warning = validation_result.get("warning_message", "The uploaded rule contains syntax or concepts that do not match the specified language/framework.")
+            return jsonify({
+                "error": "Rule Validation Failed",
+                "warning_message": warning
+            }), 400
+    except Exception as e:
+        logger.error(f"Rule validation LLM call failed: {e}")
+        # If LLM is down, we can choose to proceed or block. We'll proceed so it doesn't break entirely.
+
     standards_store.add_standard(standard)
 
     # Persist in DB
@@ -79,7 +105,14 @@ def add_standards_bulk():
     if not isinstance(data, list):
         return jsonify({"error": "Expected a JSON array of rules"}), 400
 
-    added = 0
+    force = request.args.get("force", "false").lower() == "true"
+    
+    valid_standards = []
+    failed_rules = []
+    
+    from app.llm.provider import LLMProvider
+    from app.llm.prompts import RULE_VALIDATION_PROMPT
+
     for item in data:
         rule_code = item.get("rule_code")
         title = item.get("title")
@@ -100,6 +133,41 @@ def add_standards_bulk():
             "is_blocking": item.get("is_blocking", False),
             "version": item.get("version", "1.0.0")
         }
+
+        if not force:
+            # Validate rule using LLM
+            prompt = RULE_VALIDATION_PROMPT.format(
+                language=standard["language"],
+                framework=standard["framework"],
+                title=standard["title"],
+                description=standard["description"],
+                bad_example=standard["bad_example"],
+                good_example=standard["good_example"]
+            )
+            
+            try:
+                validation_result = LLMProvider.generate(prompt)
+                if not validation_result.get("is_valid", True):
+                    warning = validation_result.get("warning_message", "The uploaded rule contains syntax or concepts that do not match the specified language/framework.")
+                    failed_rules.append({
+                        "rule_code": rule_code,
+                        "warning": warning
+                    })
+                    continue
+            except Exception as e:
+                logger.error(f"Rule validation LLM call failed for {rule_code}: {e}")
+                
+        valid_standards.append(standard)
+        
+    if failed_rules and not force:
+        return jsonify({
+            "error": "Rule Validation Failed",
+            "failed_count": len(failed_rules),
+            "failed_rules": failed_rules
+        }), 400
+
+    added = 0
+    for standard in valid_standards:
         standards_store.add_standard(standard)
         added += 1
 

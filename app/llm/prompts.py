@@ -122,3 +122,23 @@ Respond ONLY with a JSON object:
   "summary": "Concise grounded summary text."
 }}
 """
+
+RULE_VALIDATION_PROMPT = """You are an expert Software Architecture and Language validation agent.
+Analyze the following coding standard rule to ensure it makes sense for the target programming language and framework.
+
+Language: {language}
+Framework: {framework}
+
+Rule Title: {title}
+Rule Description: {description}
+Bad Example: {bad_example}
+Good Example: {good_example}
+
+Determine if this rule is applicable and valid for the specified language and framework. If it contains syntax, annotations, or concepts that belong to a completely different language (e.g. Java annotations in a Python rule), it is invalid.
+
+Respond ONLY with a valid JSON object matching this schema:
+{{
+  "is_valid": true,
+  "warning_message": "If is_valid is false, provide a clear explanation why. Otherwise, leave empty."
+}}
+"""
