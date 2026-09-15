@@ -206,6 +206,7 @@ class ReviewOrchestrator:
                         message=f["message"],
                         suggestion=f["suggestion"],
                         evidence=f.get("evidence"),
+                        fix_code=f.get("fix_code"),
                         is_blocking=f.get("is_blocking", False),
                         source_tool=f.get("source_tool", "agent")
                     ))
