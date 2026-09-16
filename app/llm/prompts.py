@@ -3,12 +3,14 @@
 ACCEPTANCE_CRITERIA_PROMPT = """You are an expert Acceptance Criteria Analysis Agent.
 Analyze the user story and acceptance criteria provided below.
 
-Convert the requirements into structured, checkable conditions. If criteria are unclear or missing, identify the ambiguities. Do NOT invent criteria that are not present.
+Your task is to convert the requirements into structured, highly specific, and checkable conditions. 
+If criteria are unclear, overly broad, or missing, identify the ambiguities. 
+Do NOT invent or assume criteria that are not present in the input.
 
 Input Criteria:
 {criteria_text}
 
-Respond ONLY with a valid JSON object matching this schema:
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
   "criteria": [
     {{
@@ -18,7 +20,9 @@ Respond ONLY with a valid JSON object matching this schema:
       "priority": "HIGH" // HIGH, MEDIUM, or LOW
     }}
   ],
-  "ambiguities": []
+  "ambiguities": [
+    "List any unclear or conflicting requirements here"
+  ]
 }}
 """
 
@@ -37,13 +41,14 @@ Git Diff:
 ```
 
 Rules:
-1. Ground every finding strictly in the observed code above.
-2. Reference ONLY actual file paths and line numbers observed in the diff.
-3. If an issue is general to the file, use line: 0.
-4. Do NOT hallucinate unobserved files or non-existent methods.
-5. Provide clear, actionable remediation suggestions with code snippets.
+1. Ground every finding strictly in the observed code above. Never assume code exists if it's not in the diff.
+2. Reference ONLY actual file paths and line numbers explicitly observed in the diff.
+3. If an issue applies to the whole file, use line: 0.
+4. Do NOT hallucinate unobserved files, missing imports, or non-existent methods.
+5. Provide clear, actionable remediation suggestions.
+6. When providing `fix_code`, ensure it's a drop-in replacement that strictly adheres to the surrounding code style.
 
-Respond ONLY with a valid JSON object matching this schema:
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
   "issues": [
     {{
@@ -52,9 +57,9 @@ Respond ONLY with a valid JSON object matching this schema:
       "severity": "WARNING", // INFO, WARNING, ERROR, CRITICAL
       "category": "Quality", // Security, Acceptance Criteria, Quality, Standards, Error Handling
       "message": "Specific issue grounded in observed code.",
-      "suggestion": "Actionable remediation advice.",
-      "fix_code": "Code snippet showing the exact fix (optional, use if applicable)",
-      "evidence": "Observed code snippet from diff",
+      "suggestion": "Actionable remediation advice explaining the 'why' and 'how'.",
+      "fix_code": "Code snippet showing the exact fix (optional, omit if not applicable)",
+      "evidence": "Observed code snippet from diff that violates the standard",
       "is_blocking": false
     }}
   ],
@@ -62,7 +67,7 @@ Respond ONLY with a valid JSON object matching this schema:
     {{
       "check_name": "Name of check passed",
       "category": "Quality",
-      "description": "Why it meets the standard"
+      "description": "Why it successfully meets the standard"
     }}
   ]
 }}
@@ -70,7 +75,7 @@ Respond ONLY with a valid JSON object matching this schema:
 
 TEST_COVERAGE_PROMPT = """You are an automated Test Coverage Analysis Agent.
 Examine the following Git diff and acceptance criteria.
-Identify if adequate unit/integration tests exist in the changed code, and list missing test scenarios (happy path, negative path, edge cases, error conditions).
+Identify if adequate unit/integration tests exist in the changed code, and list specific missing test scenarios (happy path, negative path, edge cases, error conditions).
 
 Testing Standards / Rules:
 {standards_text}
@@ -84,18 +89,19 @@ Git Diff:
 ```
 
 Rules:
-1. Check if test files (e.g. *Test.java, *Spec.groovy, test_*.py) are modified or present in the diff.
-2. Do NOT claim a test exists if no test file is in the diff.
-3. Propose realistic test scenarios and sample JUnit/pytest test methods.
+1. Check if test files (e.g. *Test.java, *Spec.groovy, test_*.py, *.test.ts) are modified or present in the diff.
+2. Do NOT claim a test exists if no corresponding test file is in the diff.
+3. Propose highly realistic, context-aware test scenarios.
+4. Ensure the suggested test code is syntactically valid for the target language and testing framework.
 
-Respond ONLY with a valid JSON object matching this schema:
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
   "missingTests": [
     {{
       "scenario_type": "negative_path", // happy_path, negative_path, edge_case, regression
       "target_file": "src/main/java/...",
       "target_method": "methodName",
-      "description": "Scenario description (e.g., should reject null email)",
+      "description": "Scenario description (e.g., should reject null email with ValidationError)",
       "suggested_test_code": "@Test void shouldThrowWhenEmailNull() {{ ... }}",
       "priority": "HIGH" // HIGH, MEDIUM, LOW
     }}
@@ -105,7 +111,7 @@ Respond ONLY with a valid JSON object matching this schema:
 """
 
 SUMMARY_FEEDBACK_PROMPT = """You are a Lead Software Architect generating a Pre-Push Code Review Summary.
-Summarize the review findings grounded in the diff.
+Synthesize the review findings into a concise, professional, and constructive summary.
 
 Diff Summary:
 {diff_summary}
@@ -115,11 +121,11 @@ Blocking: {blocking_count}, Warnings: {warning_count}, Missing Tests: {missing_t
 
 Deterministic Push Readiness Verdict: {push_readiness}
 
-Generate a concise, professional executive summary (2-4 sentences) highlighting the key strengths and immediate action items for the developer before pushing.
+Generate a concise, professional executive summary (2-4 sentences) highlighting the key strengths and immediate action items for the developer before pushing. Maintain an encouraging yet firm tone regarding blockers or missing tests.
 
-Respond ONLY with a JSON object:
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
-  "summary": "Concise grounded summary text."
+  "summary": "Concise grounded summary text highlighting strengths and next steps."
 }}
 """
 
