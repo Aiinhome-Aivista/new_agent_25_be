@@ -22,10 +22,13 @@ Respond ONLY with a valid JSON object matching this schema:
 }}
 """
 
-CODE_QUALITY_PROMPT = """You are a Senior Staff Code Reviewer and Quality Agent.
-Review the following Git diff and context for correctness, coding standards, maintainability, error handling, validation, performance, and security.
+CODE_QUALITY_PROMPT = """You are a Principal Software Engineer and Staff Security Code Reviewer.
+Perform an exhaustive inspection of the following Git diff for bugs, syntax mistakes, typos, security flaws, performance bottlenecks, and architectural standards.
 
-Coding Standards / RAG Rules:
+Target Language: {language}
+Target Framework: {framework}
+
+Coding Standards & RAG Context:
 {standards_text}
 
 Acceptance Criteria:
@@ -36,43 +39,54 @@ Git Diff:
 {diff_text}
 ```
 
-Rules:
-1. Ground every finding strictly in the observed code above.
-2. Reference ONLY actual file paths and line numbers observed in the diff.
-3. If an issue is general to the file, use line: 0.
-4. Do NOT hallucinate unobserved files or non-existent methods.
-5. Provide clear, actionable remediation suggestions with code snippets.
+Critical Review Guidelines:
+1. Exhaustive Inspection: Examine the entire diff line by line. If the diff contains multiple distinct errors/bugs across different lines, you MUST report ALL of them as separate entries in the `issues` array.
+2. Defect Scope: Inspect modified code for:
+   - Syntax errors, stray tokens, gibberish identifiers, typos, and bad conventions (e.g. stray text like `hgjhgjhgkjhj` -> report as Syntax Error with fix to delete it, `if name == " main ":` -> `if __name__ == "__main__":`).
+   - Security vulnerabilities (e.g. binding to 0.0.0.0, SQL injection, eval/exec execution, secrets/tokens, command injection, XSS).
+   - Logic bugs, runtime exceptions, missing null/type checks, unhandled edge cases.
+   - Resource management (unclosed sockets, connections, files).
+3. Grounding & Specificity:
+   - Every issue MUST reference the EXACT line number where the defect is located in the diff.
+   - Do NOT invent or hallucinate whole-file / line 0 generic textbook rules (e.g. 'avoid queries in loops', 'avoid hardcoding secrets') unless that exact defect is explicitly written in the added diff lines!
+4. For EVERY detected issue:
+   - Explain clearly WHY it is an issue in `message`.
+   - Provide concrete, step-by-step remediation advice in `suggestion`.
+   - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE (e.g. `if __name__ == "__main__":` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line). NEVER write plain English sentences or explanations in `fix_code`! If no single-line/block code replacement is applicable, set `"fix_code": null`.
 
 Respond ONLY with a valid JSON object matching this schema:
 {{
   "issues": [
     {{
-      "file": "file/path.java",
-      "line": 42,
-      "severity": "WARNING", // INFO, WARNING, ERROR, CRITICAL
-      "category": "Quality", // Security, Acceptance Criteria, Quality, Standards, Error Handling
-      "message": "Specific issue grounded in observed code.",
-      "suggestion": "Actionable remediation advice.",
-      "fix_code": "Code snippet showing the exact fix (optional, use if applicable)",
+      "file": "path/to/file.py",
+      "line": 107,
+      "severity": "CRITICAL", // INFO, WARNING, ERROR, CRITICAL
+      "category": "Quality", // Security, Quality, Standards, Bug, Error Handling
+      "rule_id": "QUAL-PY-SYNTAX-01",
+      "message": "Detailed description of the issue grounded in diff.",
+      "suggestion": "Clear, actionable explanation on how to fix it.",
+      "fix_code": "if __name__ == \\"__main__\\":", // ONLY real code or null! NEVER English explanation text.
       "evidence": "Observed code snippet from diff",
       "is_blocking": false
     }}
   ],
   "passedChecks": [
     {{
-      "check_name": "Name of check passed",
+      "check_name": "Name of standard check passed",
       "category": "Quality",
-      "description": "Why it meets the standard"
+      "description": "Why this change satisfies the standard."
     }}
   ]
 }}
 """
 
-TEST_COVERAGE_PROMPT = """You are an automated Test Coverage Analysis Agent.
-Examine the following Git diff and acceptance criteria.
-Identify if adequate unit/integration tests exist in the changed code, and list missing test scenarios (happy path, negative path, edge cases, error conditions).
+TEST_COVERAGE_PROMPT = """You are an automated Test Engineering Analysis Agent.
+Analyze the following Git diff and propose targeted, realistic unit/integration test cases.
 
-Testing Standards / Rules:
+Target Language: {language}
+Target Framework: {framework}
+
+Testing Rules & Standards:
 {standards_text}
 
 Acceptance Criteria:
@@ -84,19 +98,22 @@ Git Diff:
 ```
 
 Rules:
-1. Check if test files (e.g. *Test.java, *Spec.groovy, test_*.py) are modified or present in the diff.
-2. Do NOT claim a test exists if no test file is in the diff.
-3. Propose realistic test scenarios and sample JUnit/pytest test methods.
+1. Propose missing test scenarios (happy path, negative path, edge cases, error conditions).
+2. Provide REAL, ready-to-run test code in `suggested_test_code` matching the Target Language:
+   - Python: use `pytest` (e.g. `def test_<name>(): ...`)
+   - TypeScript / JavaScript: use `jest` / `vitest` (e.g. `test('<name>', () => {{ ... }})`)
+   - Java: use JUnit 5 (e.g. `@Test void should...() {{ ... }}`)
+   - Go: use standard `testing` (e.g. `func Test*(t *testing.T) {{ ... }}`)
 
 Respond ONLY with a valid JSON object matching this schema:
 {{
   "missingTests": [
     {{
       "scenario_type": "negative_path", // happy_path, negative_path, edge_case, regression
-      "target_file": "src/main/java/...",
+      "target_file": "path/to/file.py",
       "target_method": "methodName",
-      "description": "Scenario description (e.g., should reject null email)",
-      "suggested_test_code": "@Test void shouldThrowWhenEmailNull() {{ ... }}",
+      "description": "Specific scenario to test.",
+      "suggested_test_code": "def test_should_reject_invalid():\\n    # Assert test condition",
       "priority": "HIGH" // HIGH, MEDIUM, LOW
     }}
   ],

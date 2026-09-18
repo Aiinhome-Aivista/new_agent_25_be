@@ -111,14 +111,8 @@ class ReviewOrchestrator:
         )
         log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_END", {"findings_count": len(quality_result["findings"])}, int((time.time() - t0)*1000))
 
-        # Step 4: Test Coverage & Edge Cases Analysis
-        t0 = time.time()
-        test_result = TestCoverageAgent.execute(
-            changed_files=diff_result["changed_files"],
-            raw_diff=diff_result["raw_diff"],
-            acceptance_criteria=ac_result["criteria"]
-        )
-        log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_END", {"missing_tests_count": len(test_result["missing_tests"])}, int((time.time() - t0)*1000))
+        # Step 4: Missing Tests (Disabled per user requirement)
+        test_result = {"missing_tests": []}
 
         # Step 5: Acceptance Criteria Satisfaction Verification
         ac_checks = []
@@ -146,7 +140,7 @@ class ReviewOrchestrator:
         t0 = time.time()
         readiness_eval = PushReadinessEngine.evaluate(
             findings=quality_result["findings"],
-            missing_tests=test_result["missing_tests"],
+            missing_tests=[],
             acceptance_results=ac_checks,
             has_diff=diff_result["has_diff"],
             has_criteria=ac_result["has_criteria"]
@@ -159,7 +153,7 @@ class ReviewOrchestrator:
             diff_summary=f"Changed {diff_result['file_count']} file(s) with {diff_result['total_added_lines']} line(s) added/modified.",
             blocking_count=readiness_eval["blocking_count"],
             warning_count=readiness_eval["warning_count"],
-            missing_tests_count=len(test_result["missing_tests"]),
+            missing_tests_count=0,
             push_readiness=readiness_eval["push_readiness"]
         )
         log_step("GenerateFeedback", "FeedbackAgent", "AGENT_END", {"summary_length": len(summary)}, int((time.time() - t0)*1000))

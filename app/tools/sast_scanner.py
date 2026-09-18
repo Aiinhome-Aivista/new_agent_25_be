@@ -2,7 +2,7 @@ import re
 from typing import List, Dict, Any
 
 class SASTFinding:
-    def __init__(self, file: str, line: int, severity: str, rule_id: str, message: str, suggestion: str, evidence: str, is_blocking: bool = False):
+    def __init__(self, file: str, line: int, severity: str, rule_id: str, message: str, suggestion: str, evidence: str, is_blocking: bool = False, fix_code: str = None):
         self.file = file
         self.line = line
         self.severity = severity # INFO, WARNING, ERROR, CRITICAL
@@ -11,6 +11,7 @@ class SASTFinding:
         self.suggestion = suggestion
         self.evidence = evidence
         self.is_blocking = is_blocking
+        self.fix_code = fix_code
 
 class SASTScanner:
     """Deterministic SAST engine focusing on Java/Spring Boot and general enterprise security rules."""
@@ -23,7 +24,8 @@ class SASTScanner:
             "severity": "CRITICAL",
             "is_blocking": True,
             "message": "Detected dynamic SQL query construction using direct string concatenation.",
-            "suggestion": "Use parameterized queries or JPA named parameters (e.g., :param) to prevent SQL injection."
+            "suggestion": "Use parameterized queries or JPA named parameters (e.g., :param) to prevent SQL injection.",
+            "fix_code": None
         },
         {
             "id": "SEC-JAVA-CSRF-01",
@@ -32,7 +34,8 @@ class SASTScanner:
             "severity": "WARNING",
             "is_blocking": False,
             "message": "Spring Security CSRF protection is explicitly disabled.",
-            "suggestion": "Enable CSRF protection unless stateless JWT / token authentication is strictly enforced on all mutable endpoints."
+            "suggestion": "Enable CSRF protection unless stateless JWT / token authentication is strictly enforced on all mutable endpoints.",
+            "fix_code": None
         },
         {
             "id": "SEC-JAVA-DESER-01",
@@ -41,7 +44,8 @@ class SASTScanner:
             "severity": "CRITICAL",
             "is_blocking": True,
             "message": "Unsafe Java native deserialization with ObjectInputStream detected.",
-            "suggestion": "Avoid native Java deserialization of untrusted payloads; use JSON/Protobuf with strict schema validation."
+            "suggestion": "Avoid native Java deserialization of untrusted payloads; use JSON/Protobuf with strict schema validation.",
+            "fix_code": None
         },
         {
             "id": "QUAL-JAVA-VALID-01",
@@ -50,7 +54,8 @@ class SASTScanner:
             "severity": "WARNING",
             "is_blocking": False,
             "message": "Controller endpoint accepts @RequestBody without @Valid or @Validated annotation.",
-            "suggestion": "Annotate DTO parameter with @Valid or @Validated to enforce bean validation constraints."
+            "suggestion": "Annotate DTO parameter with @Valid or @Validated to enforce bean validation constraints.",
+            "fix_code": None
         },
         {
             "id": "QUAL-JAVA-EXC-01",
@@ -59,7 +64,8 @@ class SASTScanner:
             "severity": "ERROR",
             "is_blocking": False,
             "message": "Empty catch block swallowed exception without logging or rethrowing.",
-            "suggestion": "Log the exception with stack trace (e.g., log.error(\"Context\", e)) or rethrow a domain-specific exception."
+            "suggestion": "Log the exception with stack trace (e.g., log.error(\"Context\", e)) or rethrow a domain-specific exception.",
+            "fix_code": None
         },
         {
             "id": "QUAL-JAVA-SYS-01",
@@ -68,11 +74,32 @@ class SASTScanner:
             "severity": "WARNING",
             "is_blocking": False,
             "message": "Direct console logging with System.out/err found in source code.",
-            "suggestion": "Use an enterprise logger like SLF4J (e.g., log.info(...), log.debug(...)) instead of standard output."
+            "suggestion": "Use an enterprise logger like SLF4J (e.g., log.info(...), log.debug(...)) instead of standard output.",
+            "fix_code": None
         }
     ]
 
     PYTHON_RULES = [
+        {
+            "id": "QUAL-PY-DUNDER-01",
+            "name": "Malformed main entrypoint conditional",
+            "pattern": r"""if\s+(?:name|__name__|name__)\s*==\s*["'](?:\s+main\s+|main|__main\b|main__\b|\s*__main__\s*)["']|if\s+name\s*==\s*["']__main__["']""",
+            "severity": "CRITICAL",
+            "is_blocking": True,
+            "message": "Malformed main entrypoint check. Python requires 'if __name__ == \"__main__\":' with exact double underscores.",
+            "suggestion": "Change the conditional check to 'if __name__ == \"__main__\":' so the module executes correctly.",
+            "fix_code": "if __name__ == \"__main__\":"
+        },
+        {
+            "id": "SEC-PY-HOST-01",
+            "name": "Wildcard 0.0.0.0 Host Binding",
+            "pattern": r"""(?:host\s*=\s*["']0\.0\.0\.0["']|bind\s*=\s*["']0\.0\.0\.0)""",
+            "severity": "WARNING",
+            "is_blocking": False,
+            "message": "Service is bound to '0.0.0.0', exposing endpoints across all network interfaces.",
+            "suggestion": "Bind to '127.0.0.1' for local execution or read the host address dynamically from an environment variable.",
+            "fix_code": "host=os.getenv('HOST', '127.0.0.1')"
+        },
         {
             "id": "SEC-PY-SQLI-01",
             "name": "Python SQL Injection via F-Strings / Format Concatenation",
@@ -80,7 +107,8 @@ class SASTScanner:
             "severity": "CRITICAL",
             "is_blocking": True,
             "message": "Dynamic SQL query formed using f-string or string formatting in Python.",
-            "suggestion": "Use parameterized queries with placeholders (e.g., cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))) to prevent SQL injection."
+            "suggestion": "Use parameterized queries with placeholders (e.g., cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))) to prevent SQL injection.",
+            "fix_code": None
         },
         {
             "id": "SEC-PY-PICKLE-01",
@@ -89,7 +117,8 @@ class SASTScanner:
             "severity": "CRITICAL",
             "is_blocking": True,
             "message": "Unsafe Python pickle deserialization of untrusted data detected.",
-            "suggestion": "Pickle allows arbitrary code execution. Use JSON, MsgPack, or Protocol Buffers instead."
+            "suggestion": "Pickle allows arbitrary code execution. Use JSON, MsgPack, or Protocol Buffers instead.",
+            "fix_code": None
         },
         {
             "id": "SEC-PY-YAML-01",
@@ -98,7 +127,8 @@ class SASTScanner:
             "severity": "CRITICAL",
             "is_blocking": True,
             "message": "Insecure yaml.load() detected without SafeLoader.",
-            "suggestion": "Use yaml.safe_load() or specify Loader=yaml.SafeLoader."
+            "suggestion": "Use yaml.safe_load() or specify Loader=yaml.SafeLoader.",
+            "fix_code": "yaml.safe_load("
         },
         {
             "id": "QUAL-PY-EXC-01",
@@ -107,7 +137,8 @@ class SASTScanner:
             "severity": "WARNING",
             "is_blocking": False,
             "message": "Bare except: block silently catches all exceptions including SystemExit and KeyboardInterrupt.",
-            "suggestion": "Catch specific exception types (e.g., except ValueError as e:) and log the error."
+            "suggestion": "Catch specific exception types (e.g., except ValueError as e:) and log the error.",
+            "fix_code": "except Exception as e:"
         },
         {
             "id": "SEC-PY-DEBUG-01",
@@ -116,7 +147,8 @@ class SASTScanner:
             "severity": "WARNING",
             "is_blocking": False,
             "message": "Debug mode explicitly enabled in production code.",
-            "suggestion": "Set debug mode dynamically using environment variables (e.g., os.getenv('DEBUG', 'False').lower() == 'true')."
+            "suggestion": "Set debug mode dynamically using environment variables (e.g., os.getenv('DEBUG', 'False').lower() == 'true').",
+            "fix_code": "debug=os.getenv('DEBUG', 'False').lower() == 'true'"
         }
     ]
 
@@ -163,9 +195,17 @@ class SASTScanner:
             for item in f.added_lines:
                 line_no = item["line_no"]
                 content = item["content"]
+                stripped = content.strip()
 
                 for rule in all_rules:
                     if re.search(rule["pattern"], content, flags=re.IGNORECASE):
+                        fix_code = rule.get("fix_code")
+                        if rule["id"] == "SEC-PY-HOST-01":
+                            # Replace 0.0.0.0 with 127.0.0.1 in the full statement
+                            fix_code = re.sub(r"""['"]0\.0\.0\.0['"]""", '"127.0.0.1"', stripped)
+                        elif rule["id"] == "SEC-PY-DEBUG-01":
+                            fix_code = re.sub(r"""debug\s*=\s*True""", "debug=False", stripped, flags=re.IGNORECASE)
+
                         findings.append(SASTFinding(
                             file=file_path,
                             line=line_no,
@@ -173,7 +213,8 @@ class SASTScanner:
                             rule_id=rule["id"],
                             message=rule["message"],
                             suggestion=rule["suggestion"],
-                            evidence=content.strip(),
-                            is_blocking=rule.get("is_blocking", False)
+                            evidence=stripped,
+                            is_blocking=rule.get("is_blocking", False),
+                            fix_code=fix_code
                         ))
         return findings

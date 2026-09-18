@@ -13,7 +13,9 @@ class TestCoverageAgent:
         cls,
         changed_files: List[ChangedFile],
         raw_diff: str,
-        acceptance_criteria: List[Dict[str, Any]]
+        acceptance_criteria: List[Dict[str, Any]],
+        language: str = "python",
+        framework: str = "standard"
     ) -> Dict[str, Any]:
         # Check if test files are modified in diff
         test_files_observed = []
@@ -27,10 +29,12 @@ class TestCoverageAgent:
                 source_files_observed.append(cf.new_path or cf.old_path)
 
         # Fetch testing specific standards
-        standards = standards_store.search_relevant_standards(query=raw_diff[:1000] + " testing test rules")
+        standards = standards_store.search_relevant_standards(language=language, framework=framework, query=raw_diff[:1000] + " testing test rules")
         standards_text = "\n".join([f"- [{s['rule_code']}] {s['title']}: {s['description']}" for s in standards if "test" in s.get("category", "").lower() or "test" in s.get("title", "").lower()])
 
         prompt = TEST_COVERAGE_PROMPT.format(
+            language=language,
+            framework=framework or "standard",
             standards_text=standards_text,
             criteria_json=json.dumps(acceptance_criteria, indent=2),
             diff_text=raw_diff[:6000]
@@ -39,15 +43,27 @@ class TestCoverageAgent:
         resp = LLMProvider.generate(prompt)
         missing_tests = resp.get("missingTests", [])
 
-        # If source files were changed but NO test files exist, enforce at least one missing test warning
+        # If source files were changed but NO test files exist, generate language-appropriate test recommendation
         if source_files_observed and not test_files_observed and not missing_tests:
             target_f = source_files_observed[0]
+            lang_lower = (language or "").lower()
+            if "python" in lang_lower:
+                sample_test = "import pytest\n\ndef test_feature_execution():\n    # Arrange & Act & Assert\n    assert True"
+            elif "typescript" in lang_lower or "javascript" in lang_lower:
+                sample_test = "import { describe, it, expect } from 'vitest';\n\ndescribe('Feature Test', () => {\n  it('should execute successfully', () => {\n    expect(true).toBe(true);\n  });\n});"
+            elif "java" in lang_lower:
+                sample_test = "@Test\nvoid shouldExecuteSuccessfully() {\n    // Arrange, Act, Assert\n}"
+            elif "go" in lang_lower:
+                sample_test = "func TestFeatureExecution(t *testing.T) {\n    // Assert\n}"
+            else:
+                sample_test = "// TODO: Add automated unit test covering this change"
+
             missing_tests.append({
                 "scenario_type": "happy_path",
                 "target_file": target_f,
                 "target_method": "coreMethods",
-                "description": f"No unit tests were observed in this diff for modified source file: {target_f}.",
-                "suggested_test_code": "// TODO: Add JUnit test verifying success path\n@Test\nvoid shouldExecuteSuccessfully() { ... }",
+                "description": f"No automated unit tests observed in this diff for modified source file: {target_f}.",
+                "suggested_test_code": sample_test,
                 "priority": "HIGH"
             })
 
@@ -56,7 +72,7 @@ class TestCoverageAgent:
             if isinstance(mt, dict):
                 formatted_missing.append({
                     "scenario_type": mt.get("scenario_type", "edge_case"),
-                    "target_file": mt.get("target_file", source_files_observed[0] if source_files_observed else "App.java"),
+                    "target_file": mt.get("target_file", source_files_observed[0] if source_files_observed else "main.py"),
                     "target_method": mt.get("target_method"),
                     "description": mt.get("description", "Missing test scenario"),
                     "suggested_test_code": mt.get("suggested_test_code", "// Test code recommendation"),

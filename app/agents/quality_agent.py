@@ -5,6 +5,7 @@ from app.llm.prompts import CODE_QUALITY_PROMPT
 from app.rag.standards_store import standards_store
 from app.tools.secret_scanner import SecretScanner
 from app.tools.sast_scanner import SASTScanner
+from app.tools.syntax_checker import SyntaxChecker
 from app.guardrails.validator import FindingValidator
 from app.tools.git_tool import ChangedFile
 
@@ -22,6 +23,10 @@ class CodeQualityAgent:
     ) -> Dict[str, Any]:
         all_raw_findings: List[Dict[str, Any]] = []
         passed_checks: List[Dict[str, Any]] = []
+
+        # 0. Deterministic Syntax / AST Checker
+        syntax_findings = SyntaxChecker.check_changed_files(changed_files, language=language)
+        all_raw_findings.extend(syntax_findings)
 
         # 1. Deterministic Secret Scanner (Zero false negatives on known credential patterns)
         secret_findings = SecretScanner.scan_changed_files(changed_files)
@@ -50,6 +55,7 @@ class CodeQualityAgent:
                 "rule_id": sast.rule_id,
                 "message": sast.message,
                 "suggestion": sast.suggestion,
+                "fix_code": sast.fix_code,
                 "evidence": sast.evidence,
                 "is_blocking": sast.is_blocking,
                 "source_tool": "deterministic_sast"
@@ -62,6 +68,8 @@ class CodeQualityAgent:
         # 4. LLM Code Quality & Standards Reasoning
         truncated_diff = raw_diff[:8000] # Safe token limit
         prompt = CODE_QUALITY_PROMPT.format(
+            language=language,
+            framework=framework or "standard",
             standards_text=standards_text,
             criteria_json=json.dumps(acceptance_criteria, indent=2),
             diff_text=truncated_diff
