@@ -22,7 +22,27 @@ class SyntaxChecker:
                 raw_content = item["content"]
                 stripped = raw_content.strip()
 
-                if not stripped or stripped.startswith("#"):
+                if not stripped:
+                    continue
+
+                if stripped.startswith("#"):
+                    # Check for Inline comment specificity (PY-DOC-003)
+                    comment_text = stripped[1:].strip()
+                    # Heuristic: No spaces and long string indicates gibberish
+                    if len(comment_text) > 8 and " " not in comment_text:
+                        findings.append({
+                            "file": file_path,
+                            "line": line_no,
+                            "severity": "WARNING",
+                            "category": "Documentation",
+                            "rule_id": "PY-DOC-003",
+                            "message": f"Inline comment '{stripped}' appears to be meaningless gibberish. Comments should explain the 'Why' behind the code.",
+                            "suggestion": "Remove the meaningless comment or replace it with a descriptive explanation.",
+                            "fix_code": "",
+                            "evidence": raw_content,
+                            "is_blocking": False,
+                            "source_tool": "syntax_checker"
+                        })
                     continue
 
                 # Check 1: Unclosed Parentheses / Call Syntax (e.g. `app = create_app(`)

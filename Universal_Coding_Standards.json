@@ -295,5 +295,16 @@
     "bad_example": "try:\n    result = process_data()\nexcept Exception:\n    return None",
     "good_example": "try:\n    result = process_data()\nexcept ValueError as error:\n    logger.warning('Invalid data: %s', error)\n    return None",
     "severity": "WARNING"
+  },
+  {
+    "rule_code": "PY-DOC-003",
+    "language": "python",
+    "framework": "general",
+    "category": "documentation",
+    "title": "Maintain Inline Comment Specificity",
+    "description": "Inline comments should explain the 'Why' behind complex logic, workarounds, or magic numbers, rather than restating 'What' the code does.",
+    "bad_example": "x = x + 1  # add 1 to x",
+    "good_example": "# WORKAROUND: Increment x by 1 to offset the 0-based index from the external API response.\nx = x + 1",
+    "severity": "INFO"
   }
 ]

@@ -47,9 +47,11 @@ Critical Review Guidelines:
 1. Exhaustive Inspection: Examine the entire diff line by line. If the diff contains multiple distinct errors/bugs across different lines, you MUST report ALL of them as separate entries in the `issues` array.
 2. Defect Scope: Inspect modified code for:
    - Syntax errors, stray tokens, gibberish identifiers, typos, and bad conventions (e.g. stray text like `hgjhgjhgkjhj` -> report as Syntax Error with fix to delete it, `if name == " main ":` -> `if __name__ == "__main__":`).
+   - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg`) should be reported as Rule ID `PY-DOC-003` (Inline Comment Specificity) with a fix to delete them. Do NOT treat comments as code or unused variables.
    - Security vulnerabilities (e.g. binding to 0.0.0.0, SQL injection, eval/exec execution, secrets/tokens, command injection, XSS).
    - Logic bugs, runtime exceptions, missing null/type checks, unhandled edge cases.
    - Resource management (unclosed sockets, connections, files).
+   - Ignore minor formatting, spacing, or whitespace issues (like empty lines). Do NOT report them as issues.
 3. Grounding & Specificity:
    - Every issue MUST reference the EXACT line number where the defect is located in the diff.
    - Do NOT invent or hallucinate whole-file / line 0 generic textbook rules (e.g. 'avoid queries in loops', 'avoid hardcoding secrets') unless that exact defect is explicitly written in the added diff lines!
