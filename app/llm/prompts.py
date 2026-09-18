@@ -3,12 +3,14 @@
 ACCEPTANCE_CRITERIA_PROMPT = """You are an expert Acceptance Criteria Analysis Agent.
 Analyze the user story and acceptance criteria provided below.
 
-Convert the requirements into structured, checkable conditions. If criteria are unclear or missing, identify the ambiguities. Do NOT invent criteria that are not present.
+Your task is to convert the requirements into structured, highly specific, and checkable conditions. 
+If criteria are unclear, overly broad, or missing, identify the ambiguities. 
+Do NOT invent or assume criteria that are not present in the input.
 
 Input Criteria:
 {criteria_text}
 
-Respond ONLY with a valid JSON object matching this schema:
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
   "criteria": [
     {{
@@ -18,7 +20,9 @@ Respond ONLY with a valid JSON object matching this schema:
       "priority": "HIGH" // HIGH, MEDIUM, or LOW
     }}
   ],
-  "ambiguities": []
+  "ambiguities": [
+    "List any unclear or conflicting requirements here"
+  ]
 }}
 """
 
@@ -54,7 +58,7 @@ Critical Review Guidelines:
    - Provide concrete, step-by-step remediation advice in `suggestion`.
    - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE (e.g. `if __name__ == "__main__":` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line). NEVER write plain English sentences or explanations in `fix_code`! If no single-line/block code replacement is applicable, set `"fix_code": null`.
 
-Respond ONLY with a valid JSON object matching this schema:
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
   "issues": [
     {{
@@ -80,7 +84,9 @@ Respond ONLY with a valid JSON object matching this schema:
 }}
 """
 
-TEST_COVERAGE_PROMPT = """You are an automated Test Engineering Analysis Agent.
+TEST_COVERAGE_PROMPT = """You are an automated Test Coverage Analysis Agent.
+Examine the following Git diff and acceptance criteria.
+Identify if adequate unit/integration tests exist in the changed code, and list specific missing test scenarios (happy path, negative path, edge cases, error conditions).
 Analyze the following Git diff and propose targeted, realistic unit/integration test cases.
 
 Target Language: {language}
@@ -104,8 +110,12 @@ Rules:
    - TypeScript / JavaScript: use `jest` / `vitest` (e.g. `test('<name>', () => {{ ... }})`)
    - Java: use JUnit 5 (e.g. `@Test void should...() {{ ... }}`)
    - Go: use standard `testing` (e.g. `func Test*(t *testing.T) {{ ... }}`)
+3. Check if test files (e.g. *Test.java, *Spec.groovy, test_*.py, *.test.ts) are modified or present in the diff.
+4. Do NOT claim a test exists if no corresponding test file is in the diff.
+5. Propose highly realistic, context-aware test scenarios.
+6. Ensure the suggested test code is syntactically valid for the target language and testing framework.
 
-Respond ONLY with a valid JSON object matching this schema:
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
   "missingTests": [
     {{
@@ -122,7 +132,7 @@ Respond ONLY with a valid JSON object matching this schema:
 """
 
 SUMMARY_FEEDBACK_PROMPT = """You are a Lead Software Architect generating a Pre-Push Code Review Summary.
-Summarize the review findings grounded in the diff.
+Synthesize the review findings into a concise, professional, and constructive summary.
 
 Diff Summary:
 {diff_summary}
@@ -132,11 +142,11 @@ Blocking: {blocking_count}, Warnings: {warning_count}, Missing Tests: {missing_t
 
 Deterministic Push Readiness Verdict: {push_readiness}
 
-Generate a concise, professional executive summary (2-4 sentences) highlighting the key strengths and immediate action items for the developer before pushing.
+Generate a concise, professional executive summary (2-4 sentences) highlighting the key strengths and immediate action items for the developer before pushing. Maintain an encouraging yet firm tone regarding blockers or missing tests.
 
-Respond ONLY with a JSON object:
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
-  "summary": "Concise grounded summary text."
+  "summary": "Concise grounded summary text highlighting strengths and next steps."
 }}
 """
 
