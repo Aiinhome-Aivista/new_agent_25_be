@@ -52,9 +52,11 @@ class TestCoverageAgent:
             elif "typescript" in lang_lower or "javascript" in lang_lower:
                 sample_test = "import { describe, it, expect } from 'vitest';\n\ndescribe('Feature Test', () => {\n  it('should execute successfully', () => {\n    expect(true).toBe(true);\n  });\n});"
             elif "java" in lang_lower:
-                sample_test = "@Test\nvoid shouldExecuteSuccessfully() {\n    // Arrange, Act, Assert\n}"
+                sample_test = "import org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.*;\n\nclass FeatureTest {\n    @Test\n    void shouldExecuteSuccessfully() {\n        // Arrange, Act, Assert\n        assertTrue(true);\n    }\n}"
             elif "go" in lang_lower:
-                sample_test = "func TestFeatureExecution(t *testing.T) {\n    // Assert\n}"
+                sample_test = "import \"testing\"\n\nfunc TestFeatureExecution(t *testing.T) {\n    // Assert\n}"
+            elif "csharp" in lang_lower or "cs" in lang_lower:
+                sample_test = "using Xunit;\n\npublic class FeatureTests {\n    [Fact]\n    public void ShouldExecuteSuccessfully() {\n        // Arrange, Act, Assert\n        Assert.True(true);\n    }\n}"
             else:
                 sample_test = "// TODO: Add automated unit test covering this change"
 
