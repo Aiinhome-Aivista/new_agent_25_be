@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.agents.orchestrator import ReviewOrchestrator
-from app.core.database import SessionLocal
+from app.core import database as db_core
 from app.models.entities import ReviewSession, ReviewFinding, MissingTest, PassedCheck, AcceptanceCriteriaCheck, ReviewAuditLog
 from app.core.logging_config import logger
 
@@ -38,8 +38,8 @@ def list_reviews():
     """List recent review sessions from database."""
     try:
         limit = int(request.args.get("limit", 20))
-        if SessionLocal:
-            db = SessionLocal()
+        if db_core.SessionLocal:
+            db = db_core.SessionLocal()
             sessions = db.query(ReviewSession).order_by(ReviewSession.created_at.desc()).limit(limit).all()
             result = [s.to_dict() for s in sessions]
             db.close()
@@ -53,8 +53,8 @@ def list_reviews():
 def get_review(session_id: str):
     """Retrieve full details of a specific review session."""
     try:
-        if SessionLocal:
-            db = SessionLocal()
+        if db_core.SessionLocal:
+            db = db_core.SessionLocal()
             session = db.query(ReviewSession).filter(ReviewSession.id == session_id).first()
             if not session:
                 db.close()
