@@ -240,6 +240,8 @@ class ReviewOrchestrator:
                         id=session_id,
                         repository_name=repository_name,
                         branch=branch,
+                        language=language,
+                        framework=framework,
                         diff_hash=diff_result["diff_hash"],
                         author=author,
                         status=session_status,
@@ -348,6 +350,14 @@ class ReviewOrchestrator:
                 raise exception_to_raise
 
             return {
+                "session": {
+                    "id": session_id,
+                    "repository_name": repository_name,
+                    "branch": branch,
+                    "language": language,
+                    "author": author,
+                    "status": session_status
+                },
                 "summary": summary,
                 "pushReadiness": readiness_eval["push_readiness"],
                 "riskLevel": readiness_eval["risk_level"],
