@@ -122,8 +122,21 @@ class ReviewOrchestrator:
                 log_step("EvaluateCodeQuality", "CodeQualityAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
                 raise
 
-            # Step 4: Missing Tests (Disabled per user requirement)
-            test_result = {"missing_tests": []}
+            # Step 4: Missing Tests Coverage Analysis
+            t0 = time.time()
+            log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_START", {})
+            try:
+                test_result = TestCoverageAgent.execute(
+                    changed_files=diff_result["changed_files"],
+                    raw_diff=diff_result["raw_diff"],
+                    acceptance_criteria=ac_result["criteria"],
+                    language=language,
+                    framework=framework
+                )
+                log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_END", {"missing_count": len(test_result["missing_tests"])}, int((time.time() - t0)*1000))
+            except Exception as e:
+                log_step("AnalyzeTestCoverage", "TestCoverageAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                raise
 
             # Step 5: Acceptance Criteria Satisfaction Verification
             ac_checks = []
