@@ -13,6 +13,8 @@ class ReviewSession(Base):
     id = Column(String(64), primary_key=True, default=generate_uuid)
     repository_name = Column(String(255), nullable=False, default="workspace")
     branch = Column(String(255), default="main")
+    language = Column(String(64), nullable=True)
+    framework = Column(String(64), nullable=True)
     commit_hash = Column(String(64), nullable=True)
     diff_hash = Column(String(64), nullable=False)
     author = Column(String(128), default="developer")
@@ -45,6 +47,8 @@ class ReviewSession(Base):
             "id": self.id,
             "repository_name": self.repository_name,
             "branch": self.branch,
+            "language": self.language,
+            "framework": self.framework,
             "commit_hash": self.commit_hash,
             "diff_hash": self.diff_hash,
             "author": self.author,

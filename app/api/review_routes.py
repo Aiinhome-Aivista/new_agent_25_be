@@ -96,3 +96,66 @@ def get_review(session_id: str):
     except Exception as e:
         logger.error(f"Error fetching review {session_id}: {e}")
         return jsonify({"error": str(e)}), 500
+
+from flask import send_file
+from app.tools.report_generator import DocxReportGenerator
+
+@review_bp.route("/<session_id>/export-docx", methods=["GET"])
+def export_review_docx(session_id: str):
+    """Export a specific review session as a .docx file."""
+    try:
+        # Re-use get_review logic to fetch data
+        if not db_core.SessionLocal:
+            return jsonify({"error": "Database not initialized"}), 500
+            
+        db = db_core.SessionLocal()
+        session = db.query(ReviewSession).filter(ReviewSession.id == session_id).first()
+        if not session:
+            db.close()
+            return jsonify({"error": "Review session not found"}), 404
+
+        findings = db.query(ReviewFinding).filter(ReviewFinding.session_id == session_id).all()
+        missing_tests = db.query(MissingTest).filter(MissingTest.session_id == session_id).all()
+        passed_checks = db.query(PassedCheck).filter(PassedCheck.session_id == session_id).all()
+        ac_checks = db.query(AcceptanceCriteriaCheck).filter(AcceptanceCriteriaCheck.session_id == session_id).all()
+
+        review_data = {
+            "session": session.to_dict(),
+            "summary": session.summary,
+            "pushReadiness": session.push_readiness,
+            "riskLevel": session.risk_level,
+            "issues": [f.to_dict() for f in findings],
+            "missingTests": [mt.to_dict() for mt in missing_tests],
+            "passedChecks": [pc.to_dict() for pc in passed_checks],
+            "acceptanceCriteriaResults": [ac.to_dict() for ac in ac_checks],
+        }
+        db.close()
+
+        buffer = DocxReportGenerator.generate_report(review_data)
+        
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=f"Code_Review_Report_{session_id}.docx",
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        logger.error(f"Error exporting docx for {session_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@review_bp.route("/export-docx", methods=["POST"])
+def export_review_docx_direct():
+    """Export review directly from JSON payload (useful for unsaved reviews)."""
+    try:
+        review_data = request.get_json() or {}
+        buffer = DocxReportGenerator.generate_report(review_data)
+        
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name="Code_Review_Report.docx",
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        logger.error(f"Error exporting direct docx: {e}")
+        return jsonify({"error": str(e)}), 500
