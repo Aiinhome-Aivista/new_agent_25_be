@@ -39,6 +39,7 @@ class ReviewSession(Base):
     missing_tests = relationship("MissingTest", back_populates="session", cascade="all, delete-orphan")
     passed_checks = relationship("PassedCheck", back_populates="session", cascade="all, delete-orphan")
     audit_logs = relationship("ReviewAuditLog", back_populates="session", cascade="all, delete-orphan")
+    reusable_components = relationship("ReusableComponent", back_populates="session", cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -241,5 +242,31 @@ class ReviewAuditLog(Base):
             "event_type": self.event_type,
             "details": self.details,
             "duration_ms": self.duration_ms,
+            "created_at": self.created_at.isoformat() if self.created_at else None
+        }
+
+class ReusableComponent(Base):
+    __tablename__ = "reusable_components"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    session_id = Column(String(64), ForeignKey("review_sessions.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    component_type = Column(String(64), nullable=False)
+    description = Column(Text, nullable=False)
+    file_path = Column(String(512), nullable=False)
+    snippet = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
+    session = relationship("ReviewSession", back_populates="reusable_components")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "name": self.name,
+            "component_type": self.component_type,
+            "description": self.description,
+            "file_path": self.file_path,
+            "snippet": self.snippet,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }

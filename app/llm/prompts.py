@@ -26,6 +26,36 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown wr
 }}
 """
 
+AC_VERIFICATION_PROMPT = """You are an expert Acceptance Criteria Verification Agent.
+Your task is to analyze the Git diff and determine if the provided acceptance criteria have been fully, partially, or not satisfied by the code changes.
+
+Acceptance Criteria:
+{criteria_json}
+
+Git Diff:
+```diff
+{diff_text}
+```
+
+For each criterion, carefully evaluate the code changes and provide a detailed verification result. Do NOT hallucinate evidence. If the required logic is missing, accurately report it.
+
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
+{{
+  "verified_criteria": [
+    {{
+      "criterion_id": "AC-001",
+      "description": "Criterion description",
+      "checkable_condition": "Checkable condition",
+      "is_satisfied": true,
+      "status": "SATISFIED", // SATISFIED, NOT_SATISFIED, or PARTIAL
+      "evidence": "Observed code lines proving satisfaction or violation",
+      "missing_details": "If not satisfied, what specific logic/validation is missing in the code?",
+      "relevant_files": ["file1.py", "file2.py"]
+    }}
+  ]
+}}
+"""
+
 CODE_QUALITY_PROMPT = """You are a Principal Software Engineer and Staff Security Code Reviewer.
 Perform an exhaustive inspection of the following Git diff for bugs, syntax mistakes, typos, security flaws, performance bottlenecks, and architectural standards.
 
@@ -169,5 +199,36 @@ Respond ONLY with a valid JSON object matching this schema:
 {{
   "is_valid": true,
   "warning_message": "If is_valid is false, provide a clear explanation why. Otherwise, leave empty."
+}}
+"""
+
+REUSABLE_CODE_PROMPT = """You are an expert Software Architect and Code Analyst.
+Analyze the following Git diff to identify any highly modular, reusable components (such as utility functions, generic classes, or shared hooks) that have been added or modified.
+
+Target Language: {language}
+Target Framework: {framework}
+
+Git Diff:
+```diff
+{diff_text}
+```
+
+Rules:
+1. Identify components that are abstracted enough to be reused across different parts of the application or other projects.
+2. Provide a clear description of what the component does and why it is reusable.
+3. Extract the exact code snippet from the diff that represents this reusable component.
+4. If no highly reusable components are found, return an empty list.
+
+Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
+{{
+  "reusable_components": [
+    {{
+      "name": "Component Name (e.g., formatDate, UseAuth)",
+      "component_type": "FUNCTION", // e.g., FUNCTION, CLASS, HOOK, COMPONENT
+      "description": "Clear explanation of what it does and why it's reusable.",
+      "file_path": "path/to/file.py",
+      "snippet": "The reusable code block"
+    }}
+  ]
 }}
 """

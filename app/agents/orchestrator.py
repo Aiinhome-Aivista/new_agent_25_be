@@ -5,13 +5,14 @@ from typing import Dict, Any, Optional
 from app.core.logging_config import logger
 from app.core.config import config
 from app.core import database as db_core
-from app.models.entities import ReviewSession, AcceptanceCriteriaCheck, ReviewFinding, MissingTest, PassedCheck, ReviewAuditLog
+from app.models.entities import ReviewSession, AcceptanceCriteriaCheck, ReviewFinding, MissingTest, PassedCheck, ReviewAuditLog, ReusableComponent
 from app.agents.acceptance_agent import AcceptanceCriteriaAgent
 from app.agents.diff_context_agent import DiffContextAgent
 from app.agents.quality_agent import CodeQualityAgent
 from app.agents.test_coverage_agent import TestCoverageAgent
 from app.agents.push_readiness_engine import PushReadinessEngine
 from app.agents.feedback_agent import FeedbackAgent
+from app.agents.reusable_code_agent import ReusableCodeAgent
 
 class ReviewOrchestrator:
     """Stateful Plan-and-Execute Orchestrator managing end-to-end multi-agent pre-push review pipeline."""
@@ -106,6 +107,20 @@ class ReviewOrchestrator:
             else:
                 framework = framework or "standard"
 
+            # Step 2a: Detect Reusable Components
+            t0 = time.time()
+            log_step("DetectReusableComponents", "ReusableCodeAgent", "AGENT_START", {"language": language, "framework": framework})
+            try:
+                reusable_components = ReusableCodeAgent.execute(
+                    raw_diff=diff_result["raw_diff"],
+                    language=language,
+                    framework=framework
+                )
+                log_step("DetectReusableComponents", "ReusableCodeAgent", "AGENT_END", {"count": len(reusable_components)}, int((time.time() - t0)*1000))
+            except Exception as e:
+                log_step("DetectReusableComponents", "ReusableCodeAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                reusable_components = []
+
             # Step 3: Code Quality & Security Evaluation
             t0 = time.time()
             log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_START", {"language": language, "framework": framework})
@@ -139,26 +154,40 @@ class ReviewOrchestrator:
                 raise
 
             # Step 5: Acceptance Criteria Satisfaction Verification
-            ac_checks = []
-            for ac in ac_result["criteria"]:
-                # Simple heuristic matching on checkable condition
-                is_satisfied = True
-                evidence = "Verified in changed code."
-                # Check if any blocking finding matches this AC
-                for f in quality_result["findings"]:
-                    if f.get("category") == "Acceptance Criteria" and f.get("severity") in ("ERROR", "CRITICAL"):
-                        is_satisfied = False
-                        evidence = f.get("message", "Criteria violation detected")
-                        break
+            t0 = time.time()
+            log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_START", {})
+            try:
+                verified_criteria = AcceptanceCriteriaAgent.verify_criteria_against_diff(
+                    criteria=ac_result["criteria"],
+                    raw_diff=diff_result["raw_diff"]
+                )
                 
-                ac_checks.append({
-                    "criterion_id": ac["id"],
-                    "description": ac["description"],
-                    "checkable_condition": ac["checkableCondition"],
-                    "priority": ac["priority"],
-                    "is_satisfied": is_satisfied,
-                    "evidence": evidence
-                })
+                ac_checks = []
+                for ac in ac_result["criteria"]:
+                    verification = next((vc for vc in verified_criteria if vc.get("criterion_id") == ac["id"]), None)
+                    
+                    if verification:
+                        is_satisfied = verification.get("is_satisfied", False)
+                        evidence = verification.get("evidence", "")
+                        if not is_satisfied and verification.get("missing_details"):
+                            evidence += f" Missing: {verification.get('missing_details')}"
+                    else:
+                        is_satisfied = False
+                        evidence = "No verification data generated."
+                        
+                    ac_checks.append({
+                        "criterion_id": ac["id"],
+                        "description": ac["description"],
+                        "checkable_condition": ac["checkableCondition"],
+                        "priority": ac["priority"],
+                        "is_satisfied": is_satisfied,
+                        "evidence": evidence
+                    })
+                
+                log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_END", {"checks_count": len(ac_checks)}, int((time.time() - t0)*1000))
+            except Exception as e:
+                log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                raise
 
             # Step 6: Deterministic Push Readiness Engine Evaluation
             t0 = time.time()
@@ -283,6 +312,18 @@ class ReviewOrchestrator:
                             description=pc.get("description")
                         ))
 
+                    # Add Reusable Components
+                    for rc in reusable_components:
+                        db.add(ReusableComponent(
+                            id=str(uuid.uuid4()),
+                            session_id=session_id,
+                            name=rc.get("name", "Unknown"),
+                            component_type=rc.get("component_type", "FUNCTION"),
+                            description=rc.get("description", ""),
+                            file_path=rc.get("file_path", ""),
+                            snippet=rc.get("snippet", "")
+                        ))
+
                     # Add Audit Logs
                     for al in audit_events:
                         db.add(ReviewAuditLog(
@@ -318,6 +359,7 @@ class ReviewOrchestrator:
                 "missingTests": test_result["missing_tests"],
                 "passedChecks": quality_result["passed_checks"],
                 "acceptanceCriteriaResults": ac_checks,
+                "reusableComponents": reusable_components,
                 "reviewMetadata": {
                     "sessionId": session_id,
                     "diffHash": diff_result["diff_hash"],

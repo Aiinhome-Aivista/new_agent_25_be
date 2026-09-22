@@ -1,7 +1,7 @@
 import json
 from typing import Dict, Any, List
 from app.llm.provider import LLMProvider
-from app.llm.prompts import ACCEPTANCE_CRITERIA_PROMPT
+from app.llm.prompts import ACCEPTANCE_CRITERIA_PROMPT, AC_VERIFICATION_PROMPT
 from app.guardrails.input_rails import InputRails
 
 class AcceptanceCriteriaAgent:
@@ -49,3 +49,16 @@ class AcceptanceCriteriaAgent:
             "ambiguities": ambiguities,
             "has_criteria": len(formatted_criteria) > 0
         }
+
+    @classmethod
+    def verify_criteria_against_diff(cls, criteria: List[Dict[str, Any]], raw_diff: str) -> List[Dict[str, Any]]:
+        if not criteria or not raw_diff:
+            return []
+            
+        prompt = AC_VERIFICATION_PROMPT.format(
+            criteria_json=json.dumps(criteria, indent=2),
+            diff_text=raw_diff[:8000]
+        )
+        response = LLMProvider.generate(prompt)
+        
+        return response.get("verified_criteria", [])
