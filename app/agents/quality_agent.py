@@ -19,7 +19,8 @@ class CodeQualityAgent:
         raw_diff: str,
         acceptance_criteria: List[Dict[str, Any]],
         language: str = "java",
-        framework: str = "spring-boot"
+        framework: str = "spring-boot",
+        codebase_context: str = ""
     ) -> Dict[str, Any]:
         all_raw_findings: List[Dict[str, Any]] = []
         passed_checks: List[Dict[str, Any]] = []
@@ -71,6 +72,7 @@ class CodeQualityAgent:
             language=language,
             framework=framework or "standard",
             standards_text=standards_text,
+            codebase_context=codebase_context if codebase_context else "(Codebase not indexed — index workspace for full context-aware review)",
             criteria_json=json.dumps(acceptance_criteria, indent=2),
             diff_text=truncated_diff
         )

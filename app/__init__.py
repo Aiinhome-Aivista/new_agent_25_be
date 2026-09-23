@@ -12,6 +12,7 @@ from app.core.logging_config import logger
 from app.api.review_routes import review_bp
 from app.api.standards_routes import standards_bp
 from app.api.config_routes import config_bp
+from app.api.codebase_routes import codebase_bp
 
 def create_app():
     app = Flask(__name__)
@@ -32,6 +33,7 @@ def create_app():
     app.register_blueprint(review_bp)
     app.register_blueprint(standards_bp)
     app.register_blueprint(config_bp)
+    app.register_blueprint(codebase_bp)
 
     @app.route("/health", methods=["GET"])
     def health():

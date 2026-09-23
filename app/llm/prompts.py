@@ -65,6 +65,9 @@ Target Framework: {framework}
 Coding Standards & RAG Context:
 {standards_text}
 
+Existing Codebase Context (Semantically Related Code — from indexed workspace):
+{codebase_context}
+
 Acceptance Criteria:
 {criteria_json}
 

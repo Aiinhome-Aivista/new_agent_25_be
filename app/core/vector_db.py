@@ -18,3 +18,14 @@ def get_standards_collection():
         name="coding_standards",
         metadata={"hnsw:space": "cosine"}
     )
+
+def get_codebase_collection():
+    """
+    Get or create the ChromaDB collection for workspace codebase chunks.
+    এই collection-এ পুরো workspace-এর code function/class অনুযায়ী chunk করে store হয়।
+    Similarity search দিয়ে context-aware review এবং duplicate detection করা হয়।
+    """
+    return chroma_client.get_or_create_collection(
+        name="codebase_chunks",
+        metadata={"hnsw:space": "cosine"}
+    )

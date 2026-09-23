@@ -13,6 +13,8 @@ from app.agents.test_coverage_agent import TestCoverageAgent
 from app.agents.push_readiness_engine import PushReadinessEngine
 from app.agents.feedback_agent import FeedbackAgent
 from app.agents.reusable_code_agent import ReusableCodeAgent
+from app.agents.duplicate_code_agent import DuplicateCodeAgent
+from app.rag.codebase_store import codebase_store
 
 class ReviewOrchestrator:
     """Stateful Plan-and-Execute Orchestrator managing end-to-end multi-agent pre-push review pipeline."""
@@ -51,6 +53,8 @@ class ReviewOrchestrator:
         quality_result = {"findings": [], "passed_checks": []}
         test_result = {"missing_tests": []}
         ac_checks = []
+        duplicate_result = {"duplicates": [], "has_duplicates": False, "skipped": True}
+        codebase_context = ""
         readiness_eval = {"push_readiness": "FAILED", "risk_level": "UNKNOWN", "blocking_count": 0, "warning_count": 0}
         summary = "Review failed due to an internal error."
         session_status = "FAILED"
@@ -121,6 +125,36 @@ class ReviewOrchestrator:
                 log_step("DetectReusableComponents", "ReusableCodeAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
                 reusable_components = []
 
+            # Step 2b: Codebase Context Retrieval (indexed workspace থেকে relevant code আনা)
+            t0 = time.time()
+            log_step("FetchCodebaseContext", "CodebaseStore", "AGENT_START", {})
+            try:
+                codebase_context = codebase_store.get_context_for_diff(
+                    diff_text=diff_result["raw_diff"],
+                    language=language
+                )
+                log_step("FetchCodebaseContext", "CodebaseStore", "AGENT_END",
+                         {"context_chars": len(codebase_context)}, int((time.time() - t0)*1000))
+            except Exception as e:
+                log_step("FetchCodebaseContext", "CodebaseStore", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                codebase_context = ""
+
+            # Step 2c: Duplicate Code Detection
+            t0 = time.time()
+            log_step("DetectDuplicateCode", "DuplicateCodeAgent", "AGENT_START", {"language": language})
+            try:
+                duplicate_result = DuplicateCodeAgent.execute(
+                    changed_files=diff_result["changed_files"],
+                    language=language
+                )
+                log_step("DetectDuplicateCode", "DuplicateCodeAgent", "AGENT_END",
+                         {"duplicates_found": len(duplicate_result["duplicates"]),
+                          "skipped": duplicate_result.get("skipped", False)},
+                         int((time.time() - t0)*1000))
+            except Exception as e:
+                log_step("DetectDuplicateCode", "DuplicateCodeAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                duplicate_result = {"duplicates": [], "has_duplicates": False, "skipped": True}
+
             # Step 3: Code Quality & Security Evaluation
             t0 = time.time()
             log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_START", {"language": language, "framework": framework})
@@ -130,7 +164,8 @@ class ReviewOrchestrator:
                     raw_diff=diff_result["raw_diff"],
                     acceptance_criteria=ac_result["criteria"],
                     language=language,
-                    framework=framework
+                    framework=framework,
+                    codebase_context=codebase_context
                 )
                 log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_END", {"findings_count": len(quality_result["findings"])}, int((time.time() - t0)*1000))
             except Exception as e:
@@ -365,7 +400,9 @@ class ReviewOrchestrator:
                 "warningIssues": readiness_eval["warning_count"],
                 "passedChecksCount": len(quality_result["passed_checks"]),
                 "missingTestsCount": len(test_result["missing_tests"]),
-                "issues": quality_result["findings"],
+                "issues": quality_result["findings"] + duplicate_result.get("duplicates", []),
+                "duplicates": duplicate_result.get("duplicates", []),
+                "codebaseIndexed": len(codebase_context) > 0,
                 "missingTests": test_result["missing_tests"],
                 "passedChecks": quality_result["passed_checks"],
                 "acceptanceCriteriaResults": ac_checks,
