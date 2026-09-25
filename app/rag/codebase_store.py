@@ -92,15 +92,18 @@ class CodebaseStore:
         patterns = {
             'python': [r'^(async\s+)?def\s+\w+', r'^class\s+\w+'],
             'typescript': [
-                r'^\s*(export\s+)?(async\s+)?function\s+\w+',
+                r'^\s*(export\s+)?(default\s+)?(async\s+)?function\s*\w*',
                 r'^\s*(export\s+)?(abstract\s+)?class\s+\w+',
-                r'^\s*(public|private|protected|static|async).*\w+\s*\(',
-                r'^\s*(const|let|var)\s+\w+\s*=\s*(async\s+)?\(',
+                r'^\s*(export\s+)?(interface|type|enum)\s+\w+',
+                r'^\s*(public|private|protected|static|async|readonly|override).*\w+\s*(\<[^\>]+\>)?\s*\(',
+                r'^\s*(export\s+)?(const|let|var)\s+\w+(\s*:\s*[^=]+)?\s*=\s*(async\s+)?(\<[^\>]+\>\s*)?\(',
+                r'^\s*(export\s+)?(const|let|var)\s+\w+(\s*:\s*[^=]+)?\s*=\s*(async\s+)?(\<[^\>]+\>\s*)?\w+\s*=>',
             ],
             'javascript': [
-                r'^\s*(export\s+)?(async\s+)?function\s+\w+',
+                r'^\s*(export\s+)?(default\s+)?(async\s+)?function\s*\w*',
                 r'^\s*(export\s+)?(class\s+\w+)',
-                r'^\s*(const|let|var)\s+\w+\s*=\s*(async\s+)?\(',
+                r'^\s*(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s+)?\(',
+                r'^\s*(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s+)?\w+\s*=>',
             ],
             'java': [
                 r'^\s*(public|private|protected|static|final|abstract|synchronized).*\w+\s*\(',
@@ -206,7 +209,7 @@ class CodebaseStore:
         ids, documents, metadatas = [], [], []
         for chunk in chunks:
             chunk_id = self._make_chunk_id(file_path, chunk['start_line'])
-            doc_text = f"File: {file_path}\n\n{chunk['text']}"
+            doc_text = chunk['text']
             ids.append(chunk_id)
             documents.append(doc_text)
             metadatas.append({
@@ -280,9 +283,10 @@ class CodebaseStore:
         query_code: str,
         language: Optional[str] = None,
         n_results: int = 5,
-        exclude_file: Optional[str] = None
+        exclude_file: Optional[str] = None,
+        exclude_line: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """Query code-?? ???? similar code chunks ??????"""
+        """Query code for similar code chunks in the indexed codebase."""
         if not self.collection:
             return []
         try:
@@ -292,9 +296,13 @@ class CodebaseStore:
 
             where_filter: Dict[str, Any] = {}
             if language and language.lower() not in ("", "all", "general"):
-                where_filter["language"] = language.lower()
+                norm_lang = language.lower()
+                if norm_lang in ("javascript", "typescript", "js", "ts", "react", "vue", "angular"):
+                    where_filter = {"language": {"$in": ["javascript", "typescript"]}}
+                else:
+                    where_filter = {"language": norm_lang}
 
-            actual_n = min(n_results + 5, total)
+            actual_n = min(n_results + 10, total)
             query_kwargs: Dict[str, Any] = {
                 "query_texts": [query_code],
                 "n_results": actual_n,
@@ -303,7 +311,17 @@ class CodebaseStore:
             if where_filter:
                 query_kwargs["where"] = where_filter
 
-            results = self.collection.query(**query_kwargs)
+            try:
+                results = self.collection.query(**query_kwargs)
+            except Exception:
+                # If $in or where filter is not supported by chroma backend, retry without filter
+                query_kwargs.pop("where", None)
+                results = self.collection.query(**query_kwargs)
+
+            # If filtered search returned 0 results, retry without where filter
+            if where_filter and (not results or not results.get("metadatas") or not results["metadatas"][0]):
+                query_kwargs.pop("where", None)
+                results = self.collection.query(**query_kwargs)
             matches = []
             if results and results.get("metadatas") and results["metadatas"][0]:
                 for meta, dist, doc in zip(
@@ -312,8 +330,20 @@ class CodebaseStore:
                     results["documents"][0]
                 ):
                     similarity = 1.0 - float(dist)
-                    if exclude_file and meta.get("file_path") == exclude_file:
-                        continue
+                    meta_path = (meta.get("file_path") or "").replace('\\', '/').lstrip('/')
+                    meta_start = meta.get("start_line", 0)
+
+                    if exclude_file:
+                        norm_exclude = exclude_file.replace('\\', '/').lstrip('/')
+                        is_same_file = (norm_exclude == meta_path or norm_exclude.endswith(meta_path) or meta_path.endswith(norm_exclude))
+                        if is_same_file:
+                            if exclude_line is not None:
+                                # Only skip if it is the exact same method / chunk position
+                                if abs(meta_start - exclude_line) <= 3:
+                                    continue
+                            else:
+                                continue
+
                     matches.append({
                         "file_path": meta.get("file_path", ""),
                         "start_line": meta.get("start_line", 0),

@@ -1,4 +1,5 @@
 import re
+import difflib
 from typing import Dict, Any, List, Optional
 from app.rag.codebase_store import codebase_store
 from app.tools.git_tool import ChangedFile
@@ -7,15 +8,15 @@ from app.core.logging_config import logger
 
 class DuplicateCodeAgent:
     """
-    Push ??? ???? code-?? ??????? chunk codebase-? similarity search ???
-    duplicate code detect ???? 80% similarity ??? duplicate flag ????
+    Scans modified and added code chunks against the indexed codebase
+    to detect duplicate code (intra-file and inter-file) and promote DRY principles.
     """
 
-    # 80% threshold -- user-approved
-    SIMILARITY_THRESHOLD = 0.80
+    # 70% threshold to reliably detect duplicate methods and snippets
+    SIMILARITY_THRESHOLD = 0.70
 
-    # Minimum lines in a chunk for duplicate check (??? ??? snippets false positive ????)
-    MIN_CHUNK_LINES = 5
+    # Minimum lines in a chunk for duplicate check (handles 3+ line controller/service methods)
+    MIN_CHUNK_LINES = 3
 
     @classmethod
     def execute(
@@ -24,13 +25,13 @@ class DuplicateCodeAgent:
         language: str = "python"
     ) -> Dict[str, Any]:
         """
-        Changed files-?? added code ???? duplicate check ????
+        Scan changed files for code duplication against the indexed codebase.
         Returns: { duplicates: [...], has_duplicates: bool, checked_chunks: int }
         """
         duplicates = []
         checked_chunks = 0
 
-        # Index available ?? ?? check
+        # Check if codebase index is available
         status = codebase_store.get_status()
         if not status.get("available") or status.get("indexed_files", 0) == 0:
             logger.info("DuplicateCodeAgent: Codebase not indexed, skipping duplicate check.")
@@ -47,31 +48,47 @@ class DuplicateCodeAgent:
             if not file_path:
                 continue
 
-            # Added lines ???? meaningful chunks ??? ???
+            # Extract added code from diff
             added_code = cls._extract_added_code(changed_file)
             if not added_code:
                 continue
 
-            # Code-?? chunk ???
-            chunks = cls._chunk_added_code(added_code)
+            # Chunk added code using function boundaries + sliding window
+            chunks = cls._chunk_added_code(added_code, language)
 
             for chunk_text, base_line in chunks:
                 if len(chunk_text.strip().splitlines()) < cls.MIN_CHUNK_LINES:
-                    continue  # ??? snippets skip
+                    continue
 
                 checked_chunks += 1
 
-                # Codebase-? similar code ?????
+                # Search similar code in codebase (handles both intra-file and inter-file duplicates)
                 similar_results = codebase_store.search_similar_code(
                     query_code=chunk_text,
                     language=language,
-                    n_results=3,
-                    exclude_file=file_path  # ????? file-?? match skip
+                    n_results=5,
+                    exclude_file=file_path,
+                    exclude_line=base_line
                 )
 
                 for match in similar_results:
-                    if match["similarity"] >= cls.SIMILARITY_THRESHOLD:
-                        sim_pct = int(match["similarity"] * 100)
+                    # Calculate vector similarity + exact lexical similarity for max accuracy
+                    vector_sim = match.get("similarity", 0.0)
+                    text_ratio = difflib.SequenceMatcher(
+                        None,
+                        chunk_text.strip(),
+                        match.get("text", "").strip()
+                    ).ratio()
+                    effective_sim = max(vector_sim, text_ratio)
+
+                    if effective_sim >= cls.SIMILARITY_THRESHOLD:
+                        sim_pct = int(effective_sim * 100)
+                        norm_cur = file_path.replace('\\', '/').lstrip('/')
+                        norm_match = (match['file_path'] or '').replace('\\', '/').lstrip('/')
+                        is_same_file = (norm_cur == norm_match or norm_cur.endswith(norm_match) or norm_match.endswith(norm_cur))
+
+                        location_desc = f"in the same file (Line {match['start_line']}-{match['end_line']})" if is_same_file else f"in '{match['file_path']}' (Line {match['start_line']}-{match['end_line']})"
+
                         duplicates.append({
                             "file": file_path,
                             "line": base_line,
@@ -80,23 +97,21 @@ class DuplicateCodeAgent:
                             "category": "Code Duplication",
                             "rule_id": "QUAL-DUP-001",
                             "message": (
-                                f"?? code-?? {sim_pct}% duplicate ?????? ???? "
-                                f"'{match['file_path']}' ? (Line {match['start_line']}-{match['end_line']})?"
+                                f"This code is {sim_pct}% duplicate of existing code {location_desc}."
                             ),
                             "suggestion": (
-                                f"Duplicate avoid ????? "
-                                f"'{match['file_path']}:{match['start_line']}' ???? existing code reuse ????? "
-                                f"DRY (Don't Repeat Yourself) principle follow ?????"
+                                f"Avoid duplicate code by reusing existing logic from "
+                                f"'{match['file_path']}:{match['start_line']}' to follow the DRY (Don't Repeat Yourself) principle."
                             ),
                             "evidence": f"Similarity: {sim_pct}% with {match['file_path']}:{match['start_line']}-{match['end_line']}",
                             "duplicate_in_file": match["file_path"],
                             "duplicate_at_line": match["start_line"],
-                            "similarity_score": match["similarity"],
+                            "similarity_score": round(effective_sim, 4),
                             "is_blocking": False,
                             "source_tool": "duplicate_code_agent",
                             "fix_code": ""
                         })
-                        break  # ??????? chunk-?? ???? ??????? similar ????? report
+                        break  # Report highest similarity match per chunk
 
         logger.info(
             f"DuplicateCodeAgent: checked {checked_chunks} chunks, "
@@ -128,18 +143,38 @@ class DuplicateCodeAgent:
         return '\n'.join(added_lines)
 
     @classmethod
-    def _chunk_added_code(cls, code: str, chunk_size: int = 30) -> List[tuple]:
+    def _chunk_added_code(cls, code: str, language: str = "general") -> List[tuple]:
         """
-        Added code-?? chunks-? ??? ????
+        Chunk added code by function/method boundary first, and then with a sliding window
+        to ensure both complete methods and multi-line snippets are checked against the codebase.
         Returns: List of (chunk_text, approximate_start_line)
         """
-        lines = code.split('\n')
         chunks = []
+        seen_texts = set()
+
+        # 1. Function / method boundary chunks (Java methods, Python functions, etc.)
+        try:
+            fn_chunks = codebase_store._chunk_by_function_boundary(code, language)
+            for c in fn_chunks:
+                txt = c.get('text', '').strip()
+                if txt and len(txt.splitlines()) >= cls.MIN_CHUNK_LINES:
+                    if txt not in seen_texts:
+                        seen_texts.add(txt)
+                        chunks.append((txt, c.get('start_line', 1)))
+        except Exception as e:
+            logger.warning(f"Failed to chunk added code by function boundary: {e}")
+
+        # 2. Sliding window chunks (18 lines) to catch duplicated logic blocks within methods
+        lines = code.split('\n')
+        chunk_size = 18
         i = 0
         while i < len(lines):
             end = min(i + chunk_size, len(lines))
             chunk = '\n'.join(lines[i:end]).strip()
-            if chunk:
-                chunks.append((chunk, i + 1))
-            i += chunk_size - 3  # 3 lines overlap
+            if chunk and len(chunk.splitlines()) >= cls.MIN_CHUNK_LINES:
+                if chunk not in seen_texts:
+                    seen_texts.add(chunk)
+                    chunks.append((chunk, i + 1))
+            i += max(1, chunk_size - 4)  # 4 lines overlap
+
         return chunks

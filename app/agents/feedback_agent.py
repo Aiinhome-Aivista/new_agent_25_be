@@ -17,22 +17,26 @@ class FeedbackAgent:
         if push_readiness == "DO_NOT_PUSH":
             return f"Review verdict is DO NOT PUSH. Found {blocking_count} blocking issue(s) that must be resolved prior to repository push."
         
-        prompt = SUMMARY_FEEDBACK_PROMPT.format(
-            diff_summary=diff_summary,
-            blocking_count=blocking_count,
-            warning_count=warning_count,
-            missing_tests_count=missing_tests_count,
-            push_readiness=push_readiness
-        )
-        resp = LLMProvider.generate(prompt)
-        summary = resp.get("summary")
+        try:
+            prompt = SUMMARY_FEEDBACK_PROMPT.format(
+                diff_summary=diff_summary,
+                blocking_count=blocking_count,
+                warning_count=warning_count,
+                missing_tests_count=missing_tests_count,
+                push_readiness=push_readiness
+            )
+            resp = LLMProvider.generate(prompt)
+            summary = resp.get("summary")
+            if summary and isinstance(summary, str) and summary.strip():
+                return summary.strip()
+        except Exception:
+            pass
         
-        if not summary or not isinstance(summary, str):
-            if push_readiness == "READY":
-                return "All quality gates and security checks passed cleanly. Changes are verified and ready for push."
-            elif push_readiness == "MINOR_FIXES_REQUIRED":
-                return f"Review completed with MINOR FIXES REQUIRED ({warning_count} warning(s), {missing_tests_count} missing test(s)). Please address recommendations before pushing."
-            else:
-                return f"Pre-push code review completed with status: {push_readiness}."
-        
-        return summary
+        if push_readiness == "READY":
+            return "All quality gates and security checks passed cleanly. Changes are verified and ready for push."
+        elif push_readiness == "MINOR_FIXES_REQUIRED":
+            return f"Review completed with MINOR FIXES REQUIRED ({warning_count} warning(s), {missing_tests_count} missing test(s)). Please address recommendations before pushing."
+        elif push_readiness == "DO_NOT_PUSH":
+            return f"Review verdict is DO NOT PUSH. Found {blocking_count} blocking issue(s) that must be resolved prior to repository push."
+        else:
+            return f"Pre-push code review completed with status: {push_readiness}."

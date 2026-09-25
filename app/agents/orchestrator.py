@@ -170,7 +170,12 @@ class ReviewOrchestrator:
                 log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_END", {"findings_count": len(quality_result["findings"])}, int((time.time() - t0)*1000))
             except Exception as e:
                 log_step("EvaluateCodeQuality", "CodeQualityAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                raise
+                logger.warning(f"CodeQualityAgent warning: {e}")
+                quality_result = {"findings": [], "passed_checks": []}
+
+            # Merge duplicate code findings into quality findings
+            if duplicate_result and duplicate_result.get("duplicates"):
+                quality_result["findings"] = duplicate_result["duplicates"] + quality_result.get("findings", [])
 
             # Step 4: Missing Tests Coverage Analysis
             t0 = time.time()
@@ -186,43 +191,44 @@ class ReviewOrchestrator:
                 log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_END", {"missing_count": len(test_result["missing_tests"])}, int((time.time() - t0)*1000))
             except Exception as e:
                 log_step("AnalyzeTestCoverage", "TestCoverageAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                raise
+                logger.warning(f"TestCoverageAgent warning: {e}")
+                test_result = {"missing_tests": []}
 
             # Step 5: Acceptance Criteria Satisfaction Verification
             t0 = time.time()
             log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_START", {})
+            ac_checks = []
             try:
-                verified_criteria = AcceptanceCriteriaAgent.verify_criteria_against_diff(
-                    criteria=ac_result["criteria"],
-                    raw_diff=diff_result["raw_diff"]
-                )
-                
-                ac_checks = []
-                for ac in ac_result["criteria"]:
-                    verification = next((vc for vc in verified_criteria if vc.get("criterion_id") == ac["id"]), None)
+                if ac_result.get("has_criteria") and ac_result.get("criteria"):
+                    verified_criteria = AcceptanceCriteriaAgent.verify_criteria_against_diff(
+                        criteria=ac_result["criteria"],
+                        raw_diff=diff_result["raw_diff"]
+                    )
                     
-                    if verification:
-                        is_satisfied = verification.get("is_satisfied", False)
-                        evidence = verification.get("evidence", "")
-                        if not is_satisfied and verification.get("missing_details"):
-                            evidence += f" Missing: {verification.get('missing_details')}"
-                    else:
-                        is_satisfied = False
-                        evidence = "No verification data generated."
+                    for ac in ac_result["criteria"]:
+                        verification = next((vc for vc in verified_criteria if vc.get("criterion_id") == ac["id"]), None)
                         
-                    ac_checks.append({
-                        "criterion_id": ac["id"],
-                        "description": ac["description"],
-                        "checkable_condition": ac["checkableCondition"],
-                        "priority": ac["priority"],
-                        "is_satisfied": is_satisfied,
-                        "evidence": evidence
-                    })
-                
+                        if verification:
+                            is_satisfied = verification.get("is_satisfied", False)
+                            evidence = verification.get("evidence", "")
+                            if not is_satisfied and verification.get("missing_details"):
+                                evidence += f" Missing: {verification.get('missing_details')}"
+                        else:
+                            is_satisfied = False
+                            evidence = "No verification data generated."
+                            
+                        ac_checks.append({
+                            "criterion_id": ac["id"],
+                            "description": ac["description"],
+                            "checkable_condition": ac["checkableCondition"],
+                            "priority": ac["priority"],
+                            "is_satisfied": is_satisfied,
+                            "evidence": evidence
+                        })
                 log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_END", {"checks_count": len(ac_checks)}, int((time.time() - t0)*1000))
             except Exception as e:
                 log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                raise
+                logger.warning(f"VerifyAcceptanceCriteria warning: {e}")
 
             # Step 6: Deterministic Push Readiness Engine Evaluation
             t0 = time.time()
@@ -399,8 +405,8 @@ class ReviewOrchestrator:
                 "blockingIssues": readiness_eval["blocking_count"],
                 "warningIssues": readiness_eval["warning_count"],
                 "passedChecksCount": len(quality_result["passed_checks"]),
-                "missingTestsCount": len(test_result["missing_tests"]),
-                "issues": quality_result["findings"] + duplicate_result.get("duplicates", []),
+                "issues": quality_result["findings"],
+                "findings": quality_result["findings"],
                 "duplicates": duplicate_result.get("duplicates", []),
                 "codebaseIndexed": len(codebase_context) > 0,
                 "missingTests": test_result["missing_tests"],

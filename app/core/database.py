@@ -46,8 +46,13 @@ def init_db():
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         logger.info("Successfully connected to MySQL database.")
     except Exception as e:
-        logger.error(f"MySQL connection failed or driver unavailable: {e}")
-        raise e
+        logger.error(f"MySQL connection failed: {e}")
+        logger.info("Falling back to local SQLite database (code_review.db)...")
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        sqlite_file = os.path.join(base_dir, "code_review.db")
+        engine = create_engine(f"sqlite:///{sqlite_file}", connect_args={"check_same_thread": False})
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     # Import models and create tables
     from app.models.entities import ReviewSession, AcceptanceCriteriaCheck, ReviewFinding, MissingTest, PassedCheck, CodingStandard, ReviewAuditLog

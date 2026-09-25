@@ -48,25 +48,39 @@ class LLMProvider:
 
     @classmethod
     def generate(cls, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Invokes the configured LLM provider directly for 100% dynamic AI review generation."""
+        """Invokes the configured LLM provider directly with automatic fallback for high reliability."""
         safe_prompt = SecretScanner.redact_text(prompt)
         mode = (config.MODE or "Gemini").strip().lower()
 
         if mode in ("mistral", "local"):
-            logger.info(f"Executing 100% dynamic LLM review via Mistral (URL: {config.MISTRAL_LOCAL_URL or 'Cloud API'})...")
-            return cls._call_mistral(safe_prompt, system_prompt, force_local=(mode == "local"))
+            logger.info(f"Executing dynamic LLM review via Mistral (URL: {config.MISTRAL_LOCAL_URL or 'Cloud API'})...")
+            try:
+                return cls._call_mistral(safe_prompt, system_prompt, force_local=(mode == "local"))
+            except Exception as e:
+                logger.warning(f"Mistral provider failed or timed out ({e}). Falling back to Gemini...")
+                if config.GEMINI_API_KEY:
+                    return cls._call_gemini(safe_prompt, system_prompt)
+                raise
         else:
-            logger.info(f"Executing 100% dynamic LLM review via Gemini ({config.GEMINI_MODEL or 'gemini-3.7-flash'})...")
-            return cls._call_gemini(safe_prompt, system_prompt)
+            logger.info(f"Executing dynamic LLM review via Gemini ({config.GEMINI_MODEL or 'gemini-2.5-flash'})...")
+            try:
+                return cls._call_gemini(safe_prompt, system_prompt)
+            except Exception as e:
+                logger.warning(f"Gemini API failed ({e}). Attempting fallback to Mistral...")
+                if config.MISTRAL_LOCAL_URL or config.MISTRAL_API_KEY:
+                    return cls._call_mistral(safe_prompt, system_prompt, force_local=bool(config.MISTRAL_LOCAL_URL))
+                raise
 
     @classmethod
     def _call_gemini(cls, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
-        """Calls Google Gemini using the REST API."""
+        """Calls Google Gemini using the REST API with automatic multi-model failover."""
         api_key = config.GEMINI_API_KEY
-        model_name = config.GEMINI_MODEL or "gemini-3.7-flash"
+        primary_model = config.GEMINI_MODEL or "gemini-2.5-flash"
+        # Verified working models in order of speed and stability
+        candidate_models = [primary_model, "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-flash-latest"]
+        # Remove duplicates while preserving order
+        candidate_models = list(dict.fromkeys(candidate_models))
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        
         contents = []
         if system_prompt:
             contents.append({"role": "user", "parts": [{"text": f"System Instructions: {system_prompt}"}]})
@@ -82,19 +96,28 @@ class LLMProvider:
             }
         }
 
-        resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
-        if resp.status_code == 200:
-            data = resp.json()
-            text_content = data["candidates"][0]["content"]["parts"][0]["text"]
-            return cls._clean_json_response(text_content)
-        else:
-            error_msg = f"Gemini API error (Status {resp.status_code}): {resp.text[:400]}"
-            logger.error(error_msg)
-            raise Exception(error_msg)
+        last_error = "Unknown error"
+        for model_name in candidate_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            try:
+                resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=15)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    text_content = data["candidates"][0]["content"]["parts"][0]["text"]
+                    return cls._clean_json_response(text_content)
+                else:
+                    last_error = f"Gemini API error for model {model_name} (Status {resp.status_code}): {resp.text[:200]}"
+                    logger.warning(last_error)
+            except Exception as ex:
+                last_error = f"Gemini request exception for model {model_name}: {ex}"
+                logger.warning(last_error)
+
+        logger.error(f"All Gemini model candidates failed. Last error: {last_error}")
+        raise Exception(last_error)
 
     @classmethod
     def _call_mistral(cls, prompt: str, system_prompt: Optional[str] = None, force_local: bool = False) -> Dict[str, Any]:
-        """Calls Mistral Cloud or Local Mistral Endpoint."""
+        """Calls Mistral Cloud or Local Mistral Endpoint with 25s timeout and fallback support."""
         if config.MISTRAL_API_KEY and not force_local:
             url = "https://api.mistral.ai/v1/chat/completions"
             headers = {
@@ -119,8 +142,8 @@ class LLMProvider:
             "response_format": {"type": "json_object"} if config.MISTRAL_API_KEY else None
         }
 
-        # Generous 300s timeout for local model inference on complex diffs
-        resp = requests.post(url, json=payload, headers=headers, timeout=300)
+        # 25s timeout for local endpoint so it doesn't hang the orchestrator indefinitely
+        resp = requests.post(url, json=payload, headers=headers, timeout=25)
         if resp.status_code == 200:
             data = resp.json()
             text_content = data["choices"][0]["message"]["content"]
