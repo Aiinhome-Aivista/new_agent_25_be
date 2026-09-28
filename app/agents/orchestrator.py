@@ -54,6 +54,7 @@ class ReviewOrchestrator:
         test_result = {"missing_tests": []}
         ac_checks = []
         duplicate_result = {"duplicates": [], "has_duplicates": False, "skipped": True}
+        reusable_components = []
         codebase_context = ""
         readiness_eval = {"push_readiness": "FAILED", "risk_level": "UNKNOWN", "blocking_count": 0, "warning_count": 0}
         summary = "Review failed due to an internal error."
@@ -70,7 +71,7 @@ class ReviewOrchestrator:
                 log_step("ParseAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_END", {"criteria_count": len(ac_result["criteria"])}, int((time.time() - t0)*1000))
             except Exception as e:
                 log_step("ParseAcceptanceCriteria", "AcceptanceCriteriaAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                raise
+                ac_result = {"criteria": [], "ambiguities": [str(e)], "has_criteria": False}
 
             # Step 2: Diff & Code Context Extraction
             t0 = time.time()
@@ -87,183 +88,182 @@ class ReviewOrchestrator:
                 readiness_eval["push_readiness"] = "LIMITED_REVIEW"
                 session_status = "COMPLETED"
                 log_step("ReviewSession", "Orchestrator", "AGENT_END", {"status": "NO_DIFF"}, int((time.time() - start_time)*1000))
-                return
-
-            # Auto-detect language and framework from diff if not provided
-            if not language:
-                py_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".py"))
-                ts_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith((".ts", ".tsx", ".js", ".jsx")))
-                java_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".java"))
-                go_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".go"))
-                
-                if py_count > java_count and py_count > ts_count and py_count > go_count:
-                    language = "python"
-                    framework = framework or "flask"
-                elif ts_count > java_count and ts_count > py_count and ts_count > go_count:
-                    language = "typescript"
-                    framework = framework or "react"
-                elif go_count > java_count and go_count > py_count and go_count > ts_count:
-                    language = "golang"
-                    framework = framework or "standard"
-                else:
-                    language = "java"
-                    framework = framework or "spring-boot"
             else:
-                framework = framework or "standard"
-
-            # Step 2a: Detect Reusable Components
-            t0 = time.time()
-            log_step("DetectReusableComponents", "ReusableCodeAgent", "AGENT_START", {"language": language, "framework": framework})
-            try:
-                reusable_components = ReusableCodeAgent.execute(
-                    raw_diff=diff_result["raw_diff"],
-                    language=language,
-                    framework=framework
-                )
-                log_step("DetectReusableComponents", "ReusableCodeAgent", "AGENT_END", {"count": len(reusable_components)}, int((time.time() - t0)*1000))
-            except Exception as e:
-                log_step("DetectReusableComponents", "ReusableCodeAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                reusable_components = []
-
-            # Step 2b: Codebase Context Retrieval (indexed workspace থেকে relevant code আনা)
-            t0 = time.time()
-            log_step("FetchCodebaseContext", "CodebaseStore", "AGENT_START", {})
-            try:
-                codebase_context = codebase_store.get_context_for_diff(
-                    diff_text=diff_result["raw_diff"],
-                    language=language
-                )
-                log_step("FetchCodebaseContext", "CodebaseStore", "AGENT_END",
-                         {"context_chars": len(codebase_context)}, int((time.time() - t0)*1000))
-            except Exception as e:
-                log_step("FetchCodebaseContext", "CodebaseStore", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                codebase_context = ""
-
-            # Step 2c: Duplicate Code Detection
-            t0 = time.time()
-            log_step("DetectDuplicateCode", "DuplicateCodeAgent", "AGENT_START", {"language": language})
-            try:
-                duplicate_result = DuplicateCodeAgent.execute(
-                    changed_files=diff_result["changed_files"],
-                    language=language
-                )
-                log_step("DetectDuplicateCode", "DuplicateCodeAgent", "AGENT_END",
-                         {"duplicates_found": len(duplicate_result["duplicates"]),
-                          "skipped": duplicate_result.get("skipped", False)},
-                         int((time.time() - t0)*1000))
-            except Exception as e:
-                log_step("DetectDuplicateCode", "DuplicateCodeAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                duplicate_result = {"duplicates": [], "has_duplicates": False, "skipped": True}
-
-            # Step 3: Code Quality & Security Evaluation
-            t0 = time.time()
-            log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_START", {"language": language, "framework": framework})
-            try:
-                quality_result = CodeQualityAgent.execute(
-                    changed_files=diff_result["changed_files"],
-                    raw_diff=diff_result["raw_diff"],
-                    acceptance_criteria=ac_result["criteria"],
-                    language=language,
-                    framework=framework,
-                    codebase_context=codebase_context
-                )
-                log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_END", {"findings_count": len(quality_result["findings"])}, int((time.time() - t0)*1000))
-            except Exception as e:
-                log_step("EvaluateCodeQuality", "CodeQualityAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                logger.warning(f"CodeQualityAgent warning: {e}")
-                quality_result = {"findings": [], "passed_checks": []}
-
-            # Merge duplicate code findings into quality findings
-            if duplicate_result and duplicate_result.get("duplicates"):
-                quality_result["findings"] = duplicate_result["duplicates"] + quality_result.get("findings", [])
-
-            # Step 4: Missing Tests Coverage Analysis
-            t0 = time.time()
-            log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_START", {})
-            try:
-                test_result = TestCoverageAgent.execute(
-                    changed_files=diff_result["changed_files"],
-                    raw_diff=diff_result["raw_diff"],
-                    acceptance_criteria=ac_result["criteria"],
-                    language=language,
-                    framework=framework
-                )
-                log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_END", {"missing_count": len(test_result["missing_tests"])}, int((time.time() - t0)*1000))
-            except Exception as e:
-                log_step("AnalyzeTestCoverage", "TestCoverageAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                logger.warning(f"TestCoverageAgent warning: {e}")
-                test_result = {"missing_tests": []}
-
-            # Step 5: Acceptance Criteria Satisfaction Verification
-            t0 = time.time()
-            log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_START", {})
-            ac_checks = []
-            try:
-                if ac_result.get("has_criteria") and ac_result.get("criteria"):
-                    verified_criteria = AcceptanceCriteriaAgent.verify_criteria_against_diff(
-                        criteria=ac_result["criteria"],
-                        raw_diff=diff_result["raw_diff"]
-                    )
+                # Auto-detect language and framework from diff if not provided
+                if not language:
+                    py_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".py"))
+                    ts_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith((".ts", ".tsx", ".js", ".jsx")))
+                    java_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".java"))
+                    go_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".go"))
                     
-                    for ac in ac_result["criteria"]:
-                        verification = next((vc for vc in verified_criteria if vc.get("criterion_id") == ac["id"]), None)
+                    if py_count > java_count and py_count > ts_count and py_count > go_count:
+                        language = "python"
+                        framework = framework or "flask"
+                    elif ts_count > java_count and ts_count > py_count and ts_count > go_count:
+                        language = "typescript"
+                        framework = framework or "react"
+                    elif go_count > java_count and go_count > py_count and go_count > ts_count:
+                        language = "golang"
+                        framework = framework or "standard"
+                    else:
+                        language = "java"
+                        framework = framework or "spring-boot"
+                else:
+                    framework = framework or "standard"
+
+                # Step 2a: Detect Reusable Components
+                t0 = time.time()
+                log_step("DetectReusableComponents", "ReusableCodeAgent", "AGENT_START", {"language": language, "framework": framework})
+                try:
+                    reusable_components = ReusableCodeAgent.execute(
+                        raw_diff=diff_result["raw_diff"],
+                        language=language,
+                        framework=framework
+                    )
+                    log_step("DetectReusableComponents", "ReusableCodeAgent", "AGENT_END", {"count": len(reusable_components)}, int((time.time() - t0)*1000))
+                except Exception as e:
+                    log_step("DetectReusableComponents", "ReusableCodeAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                    reusable_components = []
+
+                # Step 2b: Codebase Context Retrieval (indexed workspace থেকে relevant code আনা)
+                t0 = time.time()
+                log_step("FetchCodebaseContext", "CodebaseStore", "AGENT_START", {})
+                try:
+                    codebase_context = codebase_store.get_context_for_diff(
+                        diff_text=diff_result["raw_diff"],
+                        language=language
+                    )
+                    log_step("FetchCodebaseContext", "CodebaseStore", "AGENT_END",
+                             {"context_chars": len(codebase_context)}, int((time.time() - t0)*1000))
+                except Exception as e:
+                    log_step("FetchCodebaseContext", "CodebaseStore", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                    codebase_context = ""
+
+                # Step 2c: Duplicate Code Detection
+                t0 = time.time()
+                log_step("DetectDuplicateCode", "DuplicateCodeAgent", "AGENT_START", {"language": language})
+                try:
+                    duplicate_result = DuplicateCodeAgent.execute(
+                        changed_files=diff_result["changed_files"],
+                        language=language
+                    )
+                    log_step("DetectDuplicateCode", "DuplicateCodeAgent", "AGENT_END",
+                             {"duplicates_found": len(duplicate_result["duplicates"]),
+                              "skipped": duplicate_result.get("skipped", False)},
+                             int((time.time() - t0)*1000))
+                except Exception as e:
+                    log_step("DetectDuplicateCode", "DuplicateCodeAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                    duplicate_result = {"duplicates": [], "has_duplicates": False, "skipped": True}
+
+                # Step 3: Code Quality & Security Evaluation
+                t0 = time.time()
+                log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_START", {"language": language, "framework": framework})
+                try:
+                    quality_result = CodeQualityAgent.execute(
+                        changed_files=diff_result["changed_files"],
+                        raw_diff=diff_result["raw_diff"],
+                        acceptance_criteria=ac_result["criteria"],
+                        language=language,
+                        framework=framework,
+                        codebase_context=codebase_context
+                    )
+                    log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_END", {"findings_count": len(quality_result["findings"])}, int((time.time() - t0)*1000))
+                except Exception as e:
+                    log_step("EvaluateCodeQuality", "CodeQualityAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                    logger.warning(f"CodeQualityAgent warning: {e}")
+                    quality_result = {"findings": [], "passed_checks": []}
+
+                # Merge duplicate code findings into quality findings
+                if duplicate_result and duplicate_result.get("duplicates"):
+                    quality_result["findings"] = duplicate_result["duplicates"] + quality_result.get("findings", [])
+
+                # Step 4: Missing Tests Coverage Analysis
+                t0 = time.time()
+                log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_START", {})
+                try:
+                    test_result = TestCoverageAgent.execute(
+                        changed_files=diff_result["changed_files"],
+                        raw_diff=diff_result["raw_diff"],
+                        acceptance_criteria=ac_result["criteria"],
+                        language=language,
+                        framework=framework
+                    )
+                    log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_END", {"missing_count": len(test_result["missing_tests"])}, int((time.time() - t0)*1000))
+                except Exception as e:
+                    log_step("AnalyzeTestCoverage", "TestCoverageAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                    logger.warning(f"TestCoverageAgent warning: {e}")
+                    test_result = {"missing_tests": []}
+
+                # Step 5: Acceptance Criteria Satisfaction Verification
+                t0 = time.time()
+                log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_START", {})
+                ac_checks = []
+                try:
+                    if ac_result.get("has_criteria") and ac_result.get("criteria"):
+                        verified_criteria = AcceptanceCriteriaAgent.verify_criteria_against_diff(
+                            criteria=ac_result["criteria"],
+                            raw_diff=diff_result["raw_diff"]
+                        )
                         
-                        if verification:
-                            is_satisfied = verification.get("is_satisfied", False)
-                            evidence = verification.get("evidence", "")
-                            if not is_satisfied and verification.get("missing_details"):
-                                evidence += f" Missing: {verification.get('missing_details')}"
-                        else:
-                            is_satisfied = False
-                            evidence = "No verification data generated."
+                        for ac in ac_result["criteria"]:
+                            verification = next((vc for vc in verified_criteria if vc.get("criterion_id") == ac["id"]), None)
                             
-                        ac_checks.append({
-                            "criterion_id": ac["id"],
-                            "description": ac["description"],
-                            "checkable_condition": ac["checkableCondition"],
-                            "priority": ac["priority"],
-                            "is_satisfied": is_satisfied,
-                            "evidence": evidence
-                        })
-                log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_END", {"checks_count": len(ac_checks)}, int((time.time() - t0)*1000))
-            except Exception as e:
-                log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                logger.warning(f"VerifyAcceptanceCriteria warning: {e}")
+                            if verification:
+                                is_satisfied = verification.get("is_satisfied", False)
+                                evidence = verification.get("evidence", "")
+                                if not is_satisfied and verification.get("missing_details"):
+                                    evidence += f" Missing: {verification.get('missing_details')}"
+                            else:
+                                is_satisfied = False
+                                evidence = "No verification data generated."
+                                
+                            ac_checks.append({
+                                "criterion_id": ac["id"],
+                                "description": ac["description"],
+                                "checkable_condition": ac["checkableCondition"],
+                                "priority": ac["priority"],
+                                "is_satisfied": is_satisfied,
+                                "evidence": evidence
+                            })
+                    log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "AGENT_END", {"checks_count": len(ac_checks)}, int((time.time() - t0)*1000))
+                except Exception as e:
+                    log_step("VerifyAcceptanceCriteria", "AcceptanceCriteriaAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                    logger.warning(f"VerifyAcceptanceCriteria warning: {e}")
 
-            # Step 6: Deterministic Push Readiness Engine Evaluation
-            t0 = time.time()
-            log_step("EvaluatePushReadiness", "PushReadinessEngine", "AGENT_START", {})
-            try:
-                readiness_eval = PushReadinessEngine.evaluate(
-                    findings=quality_result["findings"],
-                    missing_tests=[],
-                    acceptance_results=ac_checks,
-                    has_diff=diff_result["has_diff"],
-                    has_criteria=ac_result["has_criteria"]
-                )
-                log_step("EvaluatePushReadiness", "PushReadinessEngine", "AGENT_END", readiness_eval, int((time.time() - t0)*1000))
-            except Exception as e:
-                log_step("EvaluatePushReadiness", "PushReadinessEngine", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                raise
+                # Step 6: Deterministic Push Readiness Engine Evaluation
+                t0 = time.time()
+                log_step("EvaluatePushReadiness", "PushReadinessEngine", "AGENT_START", {})
+                try:
+                    readiness_eval = PushReadinessEngine.evaluate(
+                        findings=quality_result["findings"],
+                        missing_tests=[],
+                        acceptance_results=ac_checks,
+                        has_diff=diff_result["has_diff"],
+                        has_criteria=ac_result["has_criteria"]
+                    )
+                    log_step("EvaluatePushReadiness", "PushReadinessEngine", "AGENT_END", readiness_eval, int((time.time() - t0)*1000))
+                except Exception as e:
+                    log_step("EvaluatePushReadiness", "PushReadinessEngine", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                    raise
 
-            # Step 7: Feedback & Summary Generation
-            t0 = time.time()
-            log_step("GenerateFeedback", "FeedbackAgent", "AGENT_START", {})
-            try:
-                summary = FeedbackAgent.generate_summary(
-                    diff_summary=f"Changed {diff_result['file_count']} file(s) with {diff_result['total_added_lines']} line(s) added/modified.",
-                    blocking_count=readiness_eval["blocking_count"],
-                    warning_count=readiness_eval["warning_count"],
-                    missing_tests_count=0,
-                    push_readiness=readiness_eval["push_readiness"]
-                )
-                log_step("GenerateFeedback", "FeedbackAgent", "AGENT_END", {"summary_length": len(summary)}, int((time.time() - t0)*1000))
-            except Exception as e:
-                log_step("GenerateFeedback", "FeedbackAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
-                raise
+                # Step 7: Feedback & Summary Generation
+                t0 = time.time()
+                log_step("GenerateFeedback", "FeedbackAgent", "AGENT_START", {})
+                try:
+                    summary = FeedbackAgent.generate_summary(
+                        diff_summary=f"Changed {diff_result['file_count']} file(s) with {diff_result['total_added_lines']} line(s) added/modified.",
+                        blocking_count=readiness_eval["blocking_count"],
+                        warning_count=readiness_eval["warning_count"],
+                        missing_tests_count=0,
+                        push_readiness=readiness_eval["push_readiness"]
+                    )
+                    log_step("GenerateFeedback", "FeedbackAgent", "AGENT_END", {"summary_length": len(summary)}, int((time.time() - t0)*1000))
+                except Exception as e:
+                    log_step("GenerateFeedback", "FeedbackAgent", "ERROR", {"error": str(e)}, int((time.time() - t0)*1000))
+                    raise
 
-            session_status = "COMPLETED"
-            log_step("ReviewSession", "Orchestrator", "AGENT_END", {"status": "SUCCESS"}, int((time.time() - start_time)*1000))
+                session_status = "COMPLETED"
+                log_step("ReviewSession", "Orchestrator", "AGENT_END", {"status": "SUCCESS"}, int((time.time() - start_time)*1000))
 
         except Exception as main_e:
             log_step("ReviewSession", "Orchestrator", "ERROR", {"error": str(main_e)}, int((time.time() - start_time)*1000))
@@ -423,215 +423,3 @@ class ReviewOrchestrator:
                     "timestamp": datetime.utcnow().isoformat() + "Z"
                 }
             }
-
-        # Auto-detect language and framework from diff if not provided
-        if not language:
-            py_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".py"))
-            ts_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith((".ts", ".tsx", ".js", ".jsx")))
-            java_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".java"))
-            go_count = sum(1 for f in diff_result["changed_files"] if (f.new_path or f.old_path or "").endswith(".go"))
-            
-            if py_count > java_count and py_count > ts_count and py_count > go_count:
-                language = "python"
-                framework = framework or "flask"
-            elif ts_count > java_count and ts_count > py_count and ts_count > go_count:
-                language = "typescript"
-                framework = framework or "react"
-            elif go_count > java_count and go_count > py_count and go_count > ts_count:
-                language = "golang"
-                framework = framework or "standard"
-            else:
-                language = "java"
-                framework = framework or "spring-boot"
-        else:
-            framework = framework or "standard"
-
-        # Step 3: Code Quality & Security Evaluation
-        t0 = time.time()
-        quality_result = CodeQualityAgent.execute(
-            changed_files=diff_result["changed_files"],
-            raw_diff=diff_result["raw_diff"],
-            acceptance_criteria=ac_result["criteria"],
-            language=language,
-            framework=framework
-        )
-        log_step("EvaluateCodeQuality", "CodeQualityAgent", "AGENT_END", {"findings_count": len(quality_result["findings"])}, int((time.time() - t0)*1000))
-
-        # Step 4: Missing Tests Coverage Analysis
-        t0 = time.time()
-        test_result = TestCoverageAgent.execute(
-            changed_files=diff_result["changed_files"],
-            raw_diff=diff_result["raw_diff"],
-            acceptance_criteria=ac_result["criteria"],
-            language=language,
-            framework=framework
-        )
-        log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_END", {"missing_count": len(test_result["missing_tests"])}, int((time.time() - t0)*1000))
-
-        # Step 5: Acceptance Criteria Satisfaction Verification
-        ac_checks = []
-        for ac in ac_result["criteria"]:
-            # Simple heuristic matching on checkable condition
-            is_satisfied = True
-            evidence = "Verified in changed code."
-            # Check if any blocking finding matches this AC
-            for f in quality_result["findings"]:
-                if f.get("category") == "Acceptance Criteria" and f.get("severity") in ("ERROR", "CRITICAL"):
-                    is_satisfied = False
-                    evidence = f.get("message", "Criteria violation detected")
-                    break
-            
-            ac_checks.append({
-                "criterion_id": ac["id"],
-                "description": ac["description"],
-                "checkable_condition": ac["checkableCondition"],
-                "priority": ac["priority"],
-                "is_satisfied": is_satisfied,
-                "evidence": evidence
-            })
-
-        # Step 6: Deterministic Push Readiness Engine Evaluation
-        t0 = time.time()
-        readiness_eval = PushReadinessEngine.evaluate(
-            findings=quality_result["findings"],
-            missing_tests=test_result["missing_tests"],
-            acceptance_results=ac_checks,
-            has_diff=diff_result["has_diff"],
-            has_criteria=ac_result["has_criteria"]
-        )
-        log_step("EvaluatePushReadiness", "PushReadinessEngine", "AGENT_END", readiness_eval, int((time.time() - t0)*1000))
-
-        # Step 7: Feedback & Summary Generation
-        t0 = time.time()
-        summary = FeedbackAgent.generate_summary(
-            diff_summary=f"Changed {diff_result['file_count']} file(s) with {diff_result['total_added_lines']} line(s) added/modified.",
-            blocking_count=readiness_eval["blocking_count"],
-            warning_count=readiness_eval["warning_count"],
-            missing_tests_count=len(test_result["missing_tests"]),
-            push_readiness=readiness_eval["push_readiness"]
-        )
-        log_step("GenerateFeedback", "FeedbackAgent", "AGENT_END", {"summary_length": len(summary)}, int((time.time() - t0)*1000))
-
-        total_duration_ms = int((time.time() - start_time) * 1000)
-        model_name = config.GEMINI_MODEL if config.MODE.lower() == "gemini" else (config.MODEL_NAME or config.MISTRAL_LOCAL_MODEL)
-
-        # Step 8: Database Persistence
-        try:
-            if SessionLocal:
-                db = SessionLocal()
-                session_entity = ReviewSession(
-                    id=session_id,
-                    repository_name=repository_name,
-                    branch=branch,
-                    diff_hash=diff_result["diff_hash"],
-                    author=author,
-                    status="COMPLETED",
-                    push_readiness=readiness_eval["push_readiness"],
-                    risk_level=readiness_eval["risk_level"],
-                    blocking_issues_count=readiness_eval["blocking_count"],
-                    warning_issues_count=readiness_eval["warning_count"],
-                    passed_checks_count=len(quality_result["passed_checks"]),
-                    missing_tests_count=len(test_result["missing_tests"]),
-                    acceptance_criteria_raw=acceptance_criteria,
-                    summary=summary,
-                    model_used=model_name,
-                    prompt_version="v1.2.0",
-                    standards_version="v2026.1",
-                    duration_ms=total_duration_ms
-                )
-                db.add(session_entity)
-
-                # Add findings
-                for f in quality_result["findings"]:
-                    db.add(ReviewFinding(
-                        id=str(uuid.uuid4()),
-                        session_id=session_id,
-                        file_path=f["file"],
-                        line_number=f["line"],
-                        severity=f["severity"],
-                        category=f["category"],
-                        rule_id=f.get("rule_id"),
-                        message=f["message"],
-                        suggestion=f["suggestion"],
-                        evidence=f.get("evidence"),
-                        fix_code=f.get("fix_code"),
-                        is_blocking=f.get("is_blocking", False),
-                        source_tool=f.get("source_tool", "agent")
-                    ))
-
-                # Add AC checks
-                for ac in ac_checks:
-                    db.add(AcceptanceCriteriaCheck(
-                        id=str(uuid.uuid4()),
-                        session_id=session_id,
-                        criterion_id=ac["criterion_id"],
-                        description=ac["description"],
-                        checkable_condition=ac["checkable_condition"],
-                        priority=ac["priority"],
-                        is_satisfied=ac["is_satisfied"],
-                        evidence=ac.get("evidence")
-                    ))
-
-                # Add Missing Tests
-                for mt in test_result["missing_tests"]:
-                    db.add(MissingTest(
-                        id=str(uuid.uuid4()),
-                        session_id=session_id,
-                        scenario_type=mt["scenario_type"],
-                        target_file=mt["target_file"],
-                        target_method=mt.get("target_method"),
-                        description=mt["description"],
-                        suggested_test_code=mt.get("suggested_test_code"),
-                        priority=mt.get("priority", "MEDIUM")
-                    ))
-
-                # Add Passed Checks
-                for pc in quality_result["passed_checks"]:
-                    db.add(PassedCheck(
-                        id=str(uuid.uuid4()),
-                        session_id=session_id,
-                        check_name=pc["check_name"],
-                        category=pc["category"],
-                        description=pc.get("description")
-                    ))
-
-                # Add Audit Logs
-                for al in audit_events:
-                    db.add(ReviewAuditLog(
-                        id=str(uuid.uuid4()),
-                        session_id=session_id,
-                        step_name=al["step_name"],
-                        agent_name=al["agent_name"],
-                        event_type=al["event_type"],
-                        details=al["details"],
-                        duration_ms=al["duration_ms"]
-                    ))
-
-                db.commit()
-                db.close()
-                logger.info(f"Review session {session_id} saved to database.")
-        except Exception as db_err:
-            logger.error(f"Failed to persist review session to database: {db_err}")
-
-        return {
-            "summary": summary,
-            "pushReadiness": readiness_eval["push_readiness"],
-            "riskLevel": readiness_eval["risk_level"],
-            "blockingIssues": readiness_eval["blocking_count"],
-            "warningIssues": readiness_eval["warning_count"],
-            "passedChecksCount": len(quality_result["passed_checks"]),
-            "missingTestsCount": len(test_result["missing_tests"]),
-            "issues": quality_result["findings"],
-            "missingTests": test_result["missing_tests"],
-            "passedChecks": quality_result["passed_checks"],
-            "acceptanceCriteriaResults": ac_checks,
-            "reviewMetadata": {
-                "sessionId": session_id,
-                "diffHash": diff_result["diff_hash"],
-                "model": model_name,
-                "promptVersion": "v1.2.0",
-                "standardsVersion": "v2026.1",
-                "durationMs": total_duration_ms,
-                "timestamp": datetime.utcnow().isoformat() + "Z"
-            }
-        }

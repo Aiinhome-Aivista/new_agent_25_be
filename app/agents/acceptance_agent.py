@@ -21,7 +21,13 @@ class AcceptanceCriteriaAgent:
         
         # Step 2: Format prompt and call LLM
         prompt = ACCEPTANCE_CRITERIA_PROMPT.format(criteria_text=sanitized)
-        response = LLMProvider.generate(prompt)
+        try:
+            response = LLMProvider.generate(prompt)
+        except Exception:
+            response = {
+                "criteria": [{"id": "AC-001", "description": sanitized, "checkableCondition": sanitized, "priority": "HIGH"}],
+                "ambiguities": []
+            }
 
         criteria_list = response.get("criteria", [])
         ambiguities = response.get("ambiguities", [])

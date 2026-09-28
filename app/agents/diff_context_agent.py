@@ -7,8 +7,8 @@ class DiffContextAgent:
 
     @classmethod
     def execute(cls, raw_diff: str) -> Dict[str, Any]:
-        if not raw_diff or not raw_diff.strip():
-            # Try to read local Git repository diff if empty
+        if raw_diff is None:
+            # Try to read local Git repository diff if not provided
             local_diff = GitTool.get_local_git_diff()
             if local_diff:
                 raw_diff = local_diff

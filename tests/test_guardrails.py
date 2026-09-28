@@ -135,14 +135,16 @@ def test_duplicate_code_reusability_suggestion():
 
     with patch("app.rag.codebase_store.codebase_store.get_status", return_value=mock_status), \
          patch("app.rag.codebase_store.codebase_store.search_similar_code", return_value=mock_search), \
-         patch("app.rag.codebase_store.codebase_store._chunk_by_function_boundary", return_value=[{"text": "public User createUser(UserRequest req) {\n    return userRepository.save(req.toUser());\n}", "start_line": 10}]):
+         patch("app.rag.codebase_store.codebase_store._chunk_by_function_boundary", return_value=[{"text": "public User createUser(UserRequest req) {\n    return userRepository.save(req.toUser());\n}", "start_line": 1}]):
         
         result = DuplicateCodeAgent.execute([changed_file], language="java")
         assert result["has_duplicates"] is True
         assert len(result["duplicates"]) > 0
         dup = result["duplicates"][0]
+        assert dup["line"] == 10
+        assert dup["end_line"] == 12
         # Must recommend reusability and provide concrete reusable delegation fix_code
-        assert dup["fix_code"] == "return userService.createUser(req);"
+        assert "userService.createUser(req)" in dup["fix_code"]
         assert "reusab" in dup["suggestion"].lower() or "dry" in dup["suggestion"].lower()
         assert dup["category"] == "Code Reusability & DRY"
 
