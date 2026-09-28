@@ -247,10 +247,6 @@ class DuplicateCodeAgent:
         match_text = match.get("text", "")
         match_file = match.get("file_path", "")
 
-        # 1. Safety Rule: If chunk is a Class, DTO, Interface, Record, or Enum, DO NOT generate a method replacement
-        if re.search(r'\b(class|interface|record|enum)\b', chunk_text):
-            return None
-
         # Try to find function signature in matching target or current chunk
         target_sig = cls._extract_function_signature(match_text, lang) or cls._extract_function_signature(chunk_text, lang)
 
@@ -295,22 +291,24 @@ class DuplicateCodeAgent:
                 else:
                     call_stmt = f"return {instance_name}.executeLogic();"
 
-        # 2. Safety Rule: Only generate replacement if the chunk is a complete, self-contained method/function
-        # This guarantees applyFix will never delete surrounding methods, annotations, or braces!
+        # Check if the chunk is a class / DTO declaration
+        is_class_decl = bool(re.search(r'^\s*(?:public\s+|protected\s+|private\s+|abstract\s+|final\s+)?(?:class|interface|record|enum)\s+(\w+)', chunk_text, re.MULTILINE))
+        if is_class_decl:
+            matched_class_name = class_name if not is_same_file else "SharedType"
+            return f"// Reusable component: import and reuse '{matched_class_name}' from {match_file}"
+
+        # Generate replacement for method / function
         raw_lines = [l for l in chunk_text.splitlines() if l.strip()]
         if not raw_lines:
-            return None
+            return call_stmt
 
         if lang == "java" or "java" in lang or lang in ("typescript", "javascript", "csharp"):
-            # Check if chunk contains opening brace '{' and ends with closing brace '}'
             header_brace_idx = chunk_text.find('{')
-            if header_brace_idx != -1 and raw_lines[-1].strip() == "}":
-                # Preserve all leading annotations, signature, and method structure
+            if header_brace_idx != -1 and raw_lines[-1].strip().endswith("}"):
                 method_header = chunk_text[:header_brace_idx + 1].strip()
                 return f"{method_header}\n        {call_stmt}\n    }}"
             else:
-                # Partial slice / sliding window inside method body -> return None so Apply Fix doesn't wipe out code
-                return None
+                return call_stmt
 
         elif lang == "python":
             first_non_empty = raw_lines[0].strip()
@@ -319,9 +317,9 @@ class DuplicateCodeAgent:
                 fn_header = chunk_text[:header_colon_idx + 1].strip()
                 return f"{fn_header}\n        {call_stmt}"
             else:
-                return None
+                return call_stmt
 
-        return None
+        return call_stmt
 
     @classmethod
     def _extract_added_lines(cls, changed_file: ChangedFile) -> List[Dict[str, Any]]:

@@ -66,15 +66,17 @@ class CodeQualityAgent:
         standards = standards_store.search_relevant_standards(language=language, framework=framework, query=raw_diff[:1000])
         standards_text = "\n".join([f"- [{s['rule_code']}] {s['title']}: {s['description']}" for s in standards])
 
-        # 4. LLM Code Quality & Standards Reasoning
-        truncated_diff = raw_diff[:8000] # Safe token limit
+        # 4. Format annotated diff with real line numbers for exact LLM grounding
+        annotated_diff = cls._format_annotated_diff(changed_files, raw_diff, max_chars=8000)
+
+        # 5. LLM Code Quality & Standards Reasoning
         prompt = CODE_QUALITY_PROMPT.format(
             language=language,
             framework=framework or "standard",
             standards_text=standards_text,
             codebase_context=codebase_context if codebase_context else "(Codebase not indexed — index workspace for full context-aware review)",
             criteria_json=json.dumps(acceptance_criteria, indent=2),
-            diff_text=truncated_diff
+            diff_text=annotated_diff
         )
 
         llm_resp = LLMProvider.generate(prompt)
@@ -103,3 +105,42 @@ class CodeQualityAgent:
             "passed_checks": passed_checks,
             "retrieved_standards": standards
         }
+
+    @classmethod
+    def _format_annotated_diff(cls, changed_files: List[ChangedFile], raw_diff: str, max_chars: int = 8000) -> str:
+        """Formats git diff with exact real line numbers explicitly prefixed on every line for LLM grounding."""
+        if not changed_files:
+            return raw_diff[:max_chars]
+
+        sections = []
+        for cf in changed_files:
+            file_name = cf.new_path or cf.old_path
+            sections.append(f"### File: {file_name} ({cf.status})")
+            if cf.hunks:
+                for hunk in cf.hunks:
+                    curr_line = hunk.new_start
+                    sections.append(f"Hunk @@ -{hunk.old_start},{hunk.old_count} +{hunk.new_start},{hunk.new_count} @@:")
+                    for line in hunk.lines:
+                        if hasattr(line, 'line_type') and line.line_type == '+':
+                            val = line.value if hasattr(line, 'value') else str(line)
+                            sections.append(f"Line {curr_line}: + {val}")
+                            curr_line += 1
+                        elif isinstance(line, str) and line.startswith('+') and not line.startswith('+++'):
+                            sections.append(f"Line {curr_line}: + {line[1:]}")
+                            curr_line += 1
+                        elif (hasattr(line, 'line_type') and line.line_type == '-') or (isinstance(line, str) and line.startswith('-') and not line.startswith('---')):
+                            val = line.value if hasattr(line, 'value') else (line[1:] if isinstance(line, str) else str(line))
+                            sections.append(f"        - {val}")
+                        else:
+                            val = line.value if hasattr(line, 'value') else (line[1:] if isinstance(line, str) and line.startswith(' ') else str(line))
+                            sections.append(f"Line {curr_line}:   {val}")
+                            curr_line += 1
+            elif cf.added_lines:
+                for item in cf.added_lines:
+                    sections.append(f"Line {item['line_no']}: + {item['content']}")
+
+        formatted = "\n".join(sections)
+        if len(formatted) > max_chars:
+            return formatted[:max_chars] + "\n... [diff truncated for length]"
+        return formatted if formatted.strip() else raw_diff[:max_chars]
+

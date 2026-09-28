@@ -80,19 +80,20 @@ Critical Review Guidelines:
 1. Exhaustive Inspection: Examine the entire diff line by line. If the diff contains multiple distinct errors/bugs across different lines, you MUST report ALL of them as separate entries in the `issues` array.
 2. Defect Scope: Inspect modified code for:
    - Syntax errors, missing semicolons in Java/JS/TS, unclosed brackets/parentheses/quotes, stray tokens, gibberish identifiers, typos, and bad conventions (e.g. Java missing semicolon `return user` -> `return user;`, stray text like `hgjhgjhgkjhj` -> report as Syntax Error with fix `""`, Python `if name == " main ":` -> `if __name__ == "__main__":`).
-   - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg` or `// kjhgkjgh;kjbhg`) should be reported as Rule ID `DOC-003` / `PY-DOC-003` / `JAVA-DOC-003` (Inline Comment Specificity) with a fix to delete them. Do NOT treat comments as code or unused variables.
+   - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg` or `// kjhgkjgh;kjbhg`) should be reported as Rule ID `DOC-003` / `PY-DOC-003` / `JAVA-DOC-003` (Inline Comment Specificity) with a fix to delete them (`fix_code: ""`). Do NOT treat comments as code or unused variables.
    - Code duplication / redundancy: Suggest refactoring repeated logic into a shared reusable utility function, service, or helper method to follow DRY principles. Do NOT suggest deleting working business logic unless it is strictly dead/unreachable code. Set "fix_code": null for refactoring suggestions.
    - Security vulnerabilities (e.g. binding to 0.0.0.0, SQL injection, eval/exec execution, secrets/tokens, command injection, XSS).
    - Logic bugs, runtime exceptions, missing null/type checks, unhandled edge cases.
    - Resource management (unclosed sockets, connections, files).
    - Ignore minor formatting, spacing, or whitespace issues (like empty lines). Do NOT report them as issues.
-3. Grounding & Specificity:
-   - Every issue MUST reference the EXACT line number where the defect is located in the diff.
+3. Grounding & Line Accuracy:
+   - The diff above contains explicit `Line <number>:` prefixes. You MUST use the exact line number from `Line <number>:` for the `line` property.
    - Do NOT invent or hallucinate whole-file / line 0 generic textbook rules (e.g. 'avoid queries in loops', 'avoid hardcoding secrets') unless that exact defect is explicitly written in the added diff lines!
-4. For EVERY detected issue:
-   - Explain clearly WHY it is an issue in `message`.
-   - Provide concrete, step-by-step remediation advice in `suggestion` (focusing on modular reusability for duplicate logic).
-   - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE (e.g. `if __name__ == "__main__":` or `return user;` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line). NEVER write plain English sentences or explanations in `fix_code`! If no single-line/block code replacement is applicable, set `"fix_code": null`.
+4. Fix Code Safety & Preservation:
+   - For EVERY detected issue, explain clearly WHY it is an issue in `message`, and provide concrete remediation advice in `suggestion`.
+   - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE targeted ONLY at that line or statement (e.g. `return user;` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line).
+   - NEVER write plain English sentences or explanations in `fix_code`!
+   - NEVER provide a `fix_code` that wipes out surrounding method annotations (like `@PostMapping`, `@GetMapping`), method signatures, or class bodies. If no single-line/block drop-in replacement is applicable, set `"fix_code": null`.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
@@ -105,7 +106,7 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown wr
       "rule_id": "SYNTAX-JAVA-MISSING-SEMICOLON",
       "message": "Detailed description of the issue grounded in diff.",
       "suggestion": "Clear, actionable explanation on how to fix it.",
-      "fix_code": "return user;", // ONLY real code or null! NEVER English explanation text.
+      "fix_code": "return user;", // ONLY real drop-in code or null! NEVER English explanation text.
       "evidence": "Observed code snippet from diff",
       "is_blocking": true
     }}
