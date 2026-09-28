@@ -28,7 +28,7 @@ class DuplicateCodeAgent:
         Scan changed files for code duplication against the indexed codebase.
         Returns: { duplicates: [...], has_duplicates: bool, checked_chunks: int }
         """
-        duplicates = []
+        raw_duplicates = []
         checked_chunks = 0
 
         # Check if codebase index is available
@@ -87,19 +87,33 @@ class DuplicateCodeAgent:
                         norm_match = (match['file_path'] or '').replace('\\', '/').lstrip('/')
                         is_same_file = (norm_cur == norm_match or norm_cur.endswith(norm_match) or norm_match.endswith(norm_cur))
 
+                        is_class_definition = bool(re.search(r'\b(class|interface|record|enum)\b', chunk_text))
+
                         if is_same_file:
                             message = f"Duplicate logic detected ({sim_pct}% similarity with line {match['start_line']}-{match['end_line']} in the same file)."
-                            suggestion = (
-                                f"Promote code reusability: Extract this repeated block into a shared private helper method "
-                                f"or reusable function within this file to adhere to DRY (Don't Repeat Yourself) principles."
-                            )
+                            if is_class_definition:
+                                suggestion = (
+                                    f"Promote code reusability: Duplicate type/class detected with line {match['start_line']}-{match['end_line']}. "
+                                    f"Reuse the existing definition within this file instead of declaring a duplicate."
+                                )
+                            else:
+                                suggestion = (
+                                    f"Promote code reusability: Extract this repeated block into a shared private helper method "
+                                    f"or reusable function within this file to adhere to DRY (Don't Repeat Yourself) principles."
+                                )
                         else:
                             message = f"Duplicate logic detected ({sim_pct}% similarity with '{match['file_path']}' at line {match['start_line']}-{match['end_line']})."
-                            suggestion = (
-                                f"Promote code reusability: Instead of duplicating this implementation, extract the shared logic "
-                                f"into a reusable utility service/helper component, or import and call the existing method from "
-                                f"'{match['file_path']}' (DRY principle)."
-                            )
+                            if is_class_definition:
+                                suggestion = (
+                                    f"Promote code reusability: Instead of declaring a duplicate class/DTO, import and reuse the existing "
+                                    f"definition from '{match['file_path']}' (DRY principle)."
+                                )
+                            else:
+                                suggestion = (
+                                    f"Promote code reusability: Instead of duplicating this implementation, extract the shared logic "
+                                    f"into a reusable utility service/helper component, or import and call the existing method from "
+                                    f"'{match['file_path']}' (DRY principle)."
+                                )
 
                         reusable_fix = cls._generate_reusable_fix_code(
                             chunk_text=chunk_text,
@@ -109,7 +123,7 @@ class DuplicateCodeAgent:
                             file_path=file_path
                         )
 
-                        duplicates.append({
+                        raw_duplicates.append({
                             "file": file_path,
                             "line": start_line,
                             "end_line": end_line,
@@ -128,9 +142,30 @@ class DuplicateCodeAgent:
                         })
                         break  # Report highest similarity match per chunk
 
+        # Deduplicate overlapping line ranges across findings for clean UX and safe applyFix
+        raw_duplicates.sort(key=lambda x: (x.get("fix_code") is not None, x.get("similarity_score", 0)), reverse=True)
+        duplicates = []
+        accepted_ranges: List[Tuple[str, int, int]] = []
+        for dup in raw_duplicates:
+            d_file = dup["file"]
+            d_start = dup["line"]
+            d_end = dup.get("end_line", d_start)
+            overlaps = False
+            for a_file, a_start, a_end in accepted_ranges:
+                if d_file == a_file:
+                    if not (d_end < a_start or d_start > a_end):
+                        overlaps = True
+                        break
+            if not overlaps:
+                accepted_ranges.append((d_file, d_start, d_end))
+                duplicates.append(dup)
+
+        # Re-sort duplicates by file and line number
+        duplicates.sort(key=lambda x: (x.get("file", ""), x.get("line", 0)))
+
         logger.info(
             f"DuplicateCodeAgent: checked {checked_chunks} chunks, "
-            f"found {len(duplicates)} duplicates."
+            f"found {len(duplicates)} non-overlapping duplicates."
         )
 
         return {
@@ -150,16 +185,17 @@ class DuplicateCodeAgent:
         # Java method pattern
         if lang == "java" or "java" in lang:
             m = re.search(
-                r'(?:public|protected|private|static|final|\s)*\s+([\w<>\[\],\s]+)\s+(\w+)\s*\(([^)]*)\)',
+                r'(?:@\w+(?:\([^)]*\))?\s+)*(?:public|protected|private|static|final|synchronized|\s)*\s+([\w<>\[\],\s]+)\s+(\w+)\s*\(([^)]*)\)',
                 code
             )
             if m:
                 ret_type = m.group(1).strip()
                 fn_name = m.group(2).strip()
                 raw_params = m.group(3).strip()
+                clean_params = re.sub(r'@[A-Za-z0-9_]+(?:\([^)]*\))?\s*', '', raw_params)
                 param_names = []
-                if raw_params:
-                    for p in raw_params.split(','):
+                if clean_params:
+                    for p in clean_params.split(','):
                         tokens = p.strip().split()
                         if tokens:
                             param_names.append(tokens[-1])
@@ -211,10 +247,12 @@ class DuplicateCodeAgent:
         match_text = match.get("text", "")
         match_file = match.get("file_path", "")
 
+        # 1. Safety Rule: If chunk is a Class, DTO, Interface, Record, or Enum, DO NOT generate a method replacement
+        if re.search(r'\b(class|interface|record|enum)\b', chunk_text):
+            return None
+
         # Try to find function signature in matching target or current chunk
         target_sig = cls._extract_function_signature(match_text, lang) or cls._extract_function_signature(chunk_text, lang)
-        raw_lines = [l for l in chunk_text.splitlines() if l.strip()]
-        is_full_method = False
 
         if is_same_file:
             if target_sig:
@@ -257,19 +295,33 @@ class DuplicateCodeAgent:
                 else:
                     call_stmt = f"return {instance_name}.executeLogic();"
 
-        # Check if the chunk represents a whole method definition so the replacement is self-contained
-        if len(raw_lines) >= 2:
-            first_line = raw_lines[0].strip()
-            last_line = raw_lines[-1].strip()
-            if (lang == "java" or "java" in lang) and ("{" in first_line or (len(raw_lines) > 1 and "{" in raw_lines[1])) and last_line == "}":
-                sig_header = raw_lines[0] if "{" in raw_lines[0] else raw_lines[0] + " " + raw_lines[1]
-                if "{" in sig_header:
-                    sig_header = sig_header[:sig_header.find("{") + 1]
-                return f"{sig_header}\n        {call_stmt}\n    }}"
-            elif lang == "python" and first_line.startswith("def ") and first_line.endswith(":"):
-                return f"{first_line}\n        {call_stmt}"
+        # 2. Safety Rule: Only generate replacement if the chunk is a complete, self-contained method/function
+        # This guarantees applyFix will never delete surrounding methods, annotations, or braces!
+        raw_lines = [l for l in chunk_text.splitlines() if l.strip()]
+        if not raw_lines:
+            return None
 
-        return call_stmt
+        if lang == "java" or "java" in lang or lang in ("typescript", "javascript", "csharp"):
+            # Check if chunk contains opening brace '{' and ends with closing brace '}'
+            header_brace_idx = chunk_text.find('{')
+            if header_brace_idx != -1 and raw_lines[-1].strip() == "}":
+                # Preserve all leading annotations, signature, and method structure
+                method_header = chunk_text[:header_brace_idx + 1].strip()
+                return f"{method_header}\n        {call_stmt}\n    }}"
+            else:
+                # Partial slice / sliding window inside method body -> return None so Apply Fix doesn't wipe out code
+                return None
+
+        elif lang == "python":
+            first_non_empty = raw_lines[0].strip()
+            if (first_non_empty.startswith("def ") or first_non_empty.startswith("@")) and ":" in chunk_text:
+                header_colon_idx = chunk_text.find(':')
+                fn_header = chunk_text[:header_colon_idx + 1].strip()
+                return f"{fn_header}\n        {call_stmt}"
+            else:
+                return None
+
+        return None
 
     @classmethod
     def _extract_added_lines(cls, changed_file: ChangedFile) -> List[Dict[str, Any]]:
@@ -344,4 +396,5 @@ class DuplicateCodeAgent:
             i += max(1, chunk_size - 4)
 
         return chunks
+
 

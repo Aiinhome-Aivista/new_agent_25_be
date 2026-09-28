@@ -127,7 +127,14 @@ class CodebaseStore:
         for i, line in enumerate(lines):
             if any(pat.match(line) for pat in compiled):
                 if i > 0:
-                    boundaries.append(i)
+                    start_i = i
+                    # Look backwards to include preceding annotations (@...) or decorators
+                    while start_i > 0 and lines[start_i - 1].strip().startswith('@'):
+                        start_i -= 1
+                    if start_i > boundaries[-1]:
+                        boundaries.append(start_i)
+                    elif i > boundaries[-1]:
+                        boundaries.append(i)
         boundaries.append(len(lines))
 
         for idx in range(len(boundaries) - 1):
