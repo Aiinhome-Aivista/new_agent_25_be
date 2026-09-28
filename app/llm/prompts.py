@@ -150,10 +150,13 @@ Critical Test Writing Guidelines:
      // When / Act
      // Then / Assert
    - Provide COMPLETE, ready-to-run, syntactically valid test methods.
-   - For Java (JUnit 5 + Mockito / AssertJ / MockMvc):
-     - Use `@Test` and `@DisplayName("...")` with a clear, descriptive method name (e.g. `shouldRegisterUserSuccessfully()`, `shouldThrowDuplicateEmailExceptionWhenEmailExists()`, `shouldReturn200WhenUpdateUserSucceeds()`).
-     - Use realistic mock declarations and assertions (`when(...).thenReturn(...)`, `verify(...)`, `assertThrows(...)`, `assertEquals(...)`, `assertNotNull(...)`, `mockMvc.perform(...)`).
-     - NEVER break tokens, numbers, or string literals mid-word across lines (e.g. `1L`, `UserResponse`, `userService.registerUser(request)` must never be split across line breaks).
+   - For Java (JUnit 5 + Mockito / AssertJ / MockMvc / Spring Boot):
+     - Use `@Test` and `@DisplayName("...")` with a clear, descriptive method name.
+     - Architecture boundaries: When testing a Controller (@RestController), ALWAYS mock the Service layer. NEVER mock the @Repository layer in a Controller test.
+     - HTTP Responses: If a Controller endpoint returns a ResponseEntity<T>, assert the HTTP status code (e.g., assertEquals(200, response.getStatusCodeValue())) and extract the body for further assertions.
+     - Strict Mocking: Avoid using generic argument matchers like any() or anyString(). Infer exact, realistic mock values dynamically based on the diff context for both when() and verify().
+     - DTOs over Entities: Service layer mocks should return DTOs as inferred from the diff, avoiding database Entities.
+     - NEVER break tokens, numbers, or string literals mid-word across lines.
    - For Python (pytest):
      - Use `def test_<action>_<condition>():` with clean fixtures, mock setups (`mocker.patch`), and `with pytest.raises(Exception):`.
    - For TypeScript / JavaScript (Vitest / Jest):
@@ -174,7 +177,7 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown wr
       "target_file": "src/test/java/com/example/crudpoc/service/UserServiceTest.java",
       "target_method": "registerUser",
       "description": "Verify that registerUser successfully saves and returns the new user.",
-      "suggested_test_code": "@Test\\n@DisplayName(\\"Should successfully register new user with valid request\\")\\nvoid shouldRegisterUserSuccessfully() {{\\n    // Given\\n    CreateUserRequest request = new CreateUserRequest(\\"Alice\\", \\"alice@test.com\\", \\"secret123\\");\\n    when(userRepository.existsByEmail(anyString())).thenReturn(false);\\n    when(userRepository.save(any(User.class))).thenReturn(new User(1L, \\"Alice\\", \\"alice@test.com\\"));\\n\\n    // When\\n    UserResponse response = userService.registerUser(request);\\n\\n    // Then\\n    assertNotNull(response);\\n    assertEquals(\\"Alice\\", response.getName());\\n    verify(userRepository, times(1)).save(any(User.class));\\n}}",
+      "suggested_test_code": "@Test\\n@DisplayName(\\"Should successfully register new user with valid request\\")\\nvoid shouldRegisterUserSuccessfully() {{\\n    // Given\\n    CreateUserRequest request = new CreateUserRequest(\\"Alice\\", \\"alice@test.com\\", \\"secret123\\");\\n    when(userRepository.existsByEmail(\\"alice@test.com\\")).thenReturn(false);\\n    when(userRepository.save(any(User.class))).thenReturn(new User(1L, \\"Alice\\", \\"alice@test.com\\"));\\n\\n    // When\\n    UserResponse response = userService.registerUser(request);\\n\\n    // Then\\n    assertNotNull(response);\\n    assertEquals(\\"Alice\\", response.getName());\\n    verify(userRepository, times(1)).existsByEmail(\\"alice@test.com\\");\\n    verify(userRepository, times(1)).save(any(User.class));\\n}}",
       "priority": "HIGH" // HIGH, MEDIUM, LOW
     }}
   ],
