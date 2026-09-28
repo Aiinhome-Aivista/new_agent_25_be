@@ -93,6 +93,7 @@ Critical Review Guidelines:
    - Explain clearly WHY it is an issue in `message`.
    - Provide concrete, step-by-step remediation advice in `suggestion` (focusing on modular reusability for duplicate logic).
    - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE (e.g. `if __name__ == "__main__":` or `return user;` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line). NEVER write plain English sentences or explanations in `fix_code`! If no single-line/block code replacement is applicable, set `"fix_code": null`.
+   - If your fix is for a single line, DO NOT include `end_line` in the issue object (or set it equal to `line`). If you specify `end_line` for a block replacement, your `fix_code` MUST contain the FULL code replacement for the ENTIRE block.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{

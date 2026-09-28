@@ -157,6 +157,10 @@ class FindingValidator:
             rule_id = finding.get("rule_id")
             is_blocking = finding.get("is_blocking", severity in ("ERROR", "CRITICAL"))
 
+            # Prevent single-line fixes from deleting multiple lines
+            if fix_code and "\n" not in fix_code and end_line_no > line_no:
+                end_line_no = line_no
+
             # Ensure fix_code is a complete line replacement for single line issues
             if fix_code and evidence and end_line_no <= line_no:
                 ev_stripped = evidence.strip()
