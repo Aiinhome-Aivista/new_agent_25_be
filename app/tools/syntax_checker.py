@@ -4,115 +4,120 @@ from typing import List, Dict, Any
 from app.tools.git_tool import ChangedFile
 
 class SyntaxChecker:
-    """Deterministic AST & Syntax Integrity Checker for Python."""
+    """Deterministic AST & Syntax Integrity Checker for Java, Python, TypeScript, and JavaScript."""
+
+    JAVA_KEYWORDS = {
+        "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
+        "class", "const", "continue", "default", "do", "double", "else", "enum",
+        "extends", "final", "finally", "float", "for", "goto", "if", "implements",
+        "import", "instanceof", "int", "interface", "long", "native", "new",
+        "package", "private", "protected", "public", "return", "short", "static",
+        "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
+        "transient", "try", "void", "volatile", "while", "record", "sealed",
+        "non-sealed", "permits", "yield", "var", "true", "false", "null"
+    }
+
+    JS_TS_KEYWORDS = {
+        "break", "case", "catch", "class", "const", "continue", "debugger",
+        "default", "delete", "do", "else", "export", "extends", "finally",
+        "for", "function", "if", "import", "in", "instanceof", "new", "return",
+        "super", "switch", "this", "throw", "try", "typeof", "var", "void",
+        "while", "with", "yield", "let", "static", "enum", "await", "async",
+        "type", "interface", "namespace", "declare", "abstract", "as", "from",
+        "true", "false", "null", "undefined"
+    }
 
     @classmethod
-    def check_changed_files(cls, changed_files: List[ChangedFile], language: str = "python") -> List[Dict[str, Any]]:
+    def check_changed_files(cls, changed_files: List[ChangedFile], language: str = None) -> List[Dict[str, Any]]:
         findings = []
-        if (language or "").lower() != "python":
-            return findings
 
         for cf in changed_files:
-            file_path = cf.new_path or cf.old_path
-            if not file_path.endswith(".py"):
+            file_path = cf.new_path or cf.old_path or ""
+            file_path_lower = file_path.lower()
+
+            # Determine effective language for file
+            file_lang = None
+            if file_path_lower.endswith(".py"):
+                file_lang = "python"
+            elif file_path_lower.endswith((".java", ".jav")):
+                file_lang = "java"
+            elif file_path_lower.endswith((".ts", ".tsx")):
+                file_lang = "typescript"
+            elif file_path_lower.endswith((".js", ".jsx", ".mjs", ".cjs")):
+                file_lang = "javascript"
+            elif language:
+                file_lang = language.lower()
+
+            if file_lang == "python":
+                findings.extend(cls._check_python_file(cf, file_path))
+            elif file_lang == "java":
+                findings.extend(cls._check_java_file(cf, file_path))
+            elif file_lang in ("javascript", "typescript"):
+                findings.extend(cls._check_js_ts_file(cf, file_path, file_lang))
+
+        return findings
+
+    @classmethod
+    def _check_python_file(cls, cf: ChangedFile, file_path: str) -> List[Dict[str, Any]]:
+        findings = []
+
+        for item in cf.added_lines:
+            line_no = item["line_no"]
+            raw_content = item["content"]
+            stripped = raw_content.strip()
+
+            if not stripped:
                 continue
 
-            for item in cf.added_lines:
-                line_no = item["line_no"]
-                raw_content = item["content"]
-                stripped = raw_content.strip()
-
-                if not stripped:
-                    continue
-
-                if stripped.startswith("#"):
-                    # Check for Inline comment specificity (PY-DOC-003)
-                    comment_text = stripped[1:].strip()
-                    # Heuristic: No spaces and long string indicates gibberish
-                    if len(comment_text) > 8 and " " not in comment_text:
-                        findings.append({
-                            "file": file_path,
-                            "line": line_no,
-                            "severity": "WARNING",
-                            "category": "Documentation",
-                            "rule_id": "PY-DOC-003",
-                            "message": f"Inline comment '{stripped}' appears to be meaningless gibberish. Comments should explain the 'Why' behind the code.",
-                            "suggestion": "Remove the meaningless comment or replace it with a descriptive explanation.",
-                            "fix_code": "",
-                            "evidence": raw_content,
-                            "is_blocking": False,
-                            "source_tool": "syntax_checker"
-                        })
-                    continue
-
-                # Check 1: Unclosed Parentheses / Call Syntax (e.g. `app = create_app(`)
-                diff_paren = stripped.count("(") - stripped.count(")")
-                if diff_paren > 0 and not stripped.startswith(("@", "def ", "class ", "if ", "while ", "with ", "for ")):
-                    corrected = stripped + (")" * diff_paren)
+            if stripped.startswith("#"):
+                comment_text = stripped[1:].strip()
+                if len(comment_text) > 8 and " " not in comment_text and not comment_text.startswith("http"):
                     findings.append({
                         "file": file_path,
                         "line": line_no,
-                        "severity": "CRITICAL",
-                        "category": "Syntax Error",
-                        "rule_id": "SYNTAX-PY-UNCLOSED-PAREN",
-                        "message": f"Unclosed parenthesis in statement '{stripped}' results in a fatal Python SyntaxError.",
-                        "suggestion": f"Close the parenthesis to complete the call: '{corrected}'.",
-                        "fix_code": corrected,
+                        "severity": "WARNING",
+                        "category": "Documentation",
+                        "rule_id": "PY-DOC-003",
+                        "message": f"Inline comment '{stripped}' appears to be meaningless gibberish. Comments should explain the 'Why' behind the code.",
+                        "suggestion": "Remove the meaningless comment or replace it with a descriptive explanation.",
+                        "fix_code": "",
                         "evidence": raw_content,
-                        "is_blocking": True,
+                        "is_blocking": False,
                         "source_tool": "syntax_checker"
                     })
-                    continue
+                continue
 
-                # Check 2: Malformed main dunder (e.g. `if  __name__ == "  _main__ ":` or `if name == " main ":`)
-                if stripped.startswith("if ") and ("name" in stripped and "main" in stripped):
-                    normalized_cond = re.sub(r'\s+', ' ', stripped)
-                    if normalized_cond != 'if __name__ == "__main__":' and normalized_cond != "if __name__ == '__main__':":
-                        findings.append({
-                            "file": file_path,
-                            "line": line_no,
-                            "severity": "CRITICAL",
-                            "category": "Syntax Error",
-                            "rule_id": "QUAL-PY-DUNDER-01",
-                            "message": f"Malformed Python main entrypoint conditional '{stripped}'. Python requires exact double underscores 'if __name__ == \"__main__\":'.",
-                            "suggestion": "Replace with standard 'if __name__ == \"__main__\":' with exact double underscores.",
-                            "fix_code": 'if __name__ == "__main__":',
-                            "evidence": raw_content,
-                            "is_blocking": True,
-                            "source_tool": "syntax_checker"
-                        })
-                        continue
+            # Check 1: Unclosed Parentheses / Call Syntax (e.g. `app = create_app(`)
+            diff_paren = stripped.count("(") - stripped.count(")")
+            if diff_paren > 0 and not stripped.startswith(("@", "def ", "class ", "if ", "while ", "with ", "for ")):
+                corrected = stripped + (")" * diff_paren)
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-PY-UNCLOSED-PAREN",
+                    "message": f"Unclosed parenthesis in statement '{stripped}' results in a fatal Python SyntaxError.",
+                    "suggestion": f"Close the parenthesis to complete the call: '{corrected}'.",
+                    "fix_code": corrected,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
 
-                # Check 3: Missing Colon on Compound Statements
-                if (stripped.startswith(("if ", "elif ", "else", "def ", "async def ", "class ", "for ", "async for ", "while ", "with ", "async with ", "try", "except", "finally"))
-                      and not stripped.endswith(":")
-                      and not stripped.endswith("\\")):
-                    corrected = stripped + ":"
+            # Check 2: Malformed main dunder (e.g. `if  __name__ == "  _main__ ":` or `if name == " main ":`)
+            if stripped.startswith("if ") and ("name" in stripped and "main" in stripped):
+                normalized_cond = re.sub(r'\s+', ' ', stripped)
+                if normalized_cond != 'if __name__ == "__main__":' and normalized_cond != "if __name__ == '__main__':":
                     findings.append({
                         "file": file_path,
                         "line": line_no,
                         "severity": "CRITICAL",
                         "category": "Syntax Error",
-                        "rule_id": "SYNTAX-PY-MISSING-COLON",
-                        "message": f"Missing colon ':' at the end of '{stripped}'. Python compound statements require a trailing colon.",
-                        "suggestion": f"Append a colon at the end of the line: '{corrected}'.",
-                        "fix_code": corrected,
-                        "evidence": raw_content,
-                        "is_blocking": True,
-                        "source_tool": "syntax_checker"
-                    })
-                    continue
-
-                # Check 4: Orphaned except/finally without try
-                if stripped.startswith(("except ", "except:", "finally:")) and "try:" not in raw_content:
-                    findings.append({
-                        "file": file_path,
-                        "line": line_no,
-                        "severity": "CRITICAL",
-                        "category": "Syntax Error",
-                        "rule_id": "SYNTAX-PY-ORPHAN-EXCEPT",
-                        "message": f"Orphaned '{stripped}' statement found without a matching 'try:' block.",
-                        "suggestion": "If this was intended as the main execution block, replace it with 'if __name__ == \"__main__\":'.",
+                        "rule_id": "QUAL-PY-DUNDER-01",
+                        "message": f"Malformed Python main entrypoint conditional '{stripped}'. Python requires exact double underscores 'if __name__ == \"__main__\":'.",
+                        "suggestion": "Replace with standard 'if __name__ == \"__main__\":' with exact double underscores.",
                         "fix_code": 'if __name__ == "__main__":',
                         "evidence": raw_content,
                         "is_blocking": True,
@@ -120,43 +125,369 @@ class SyntaxChecker:
                     })
                     continue
 
-                # Check 5: AST Parser for Stray Identifiers / Invalid Syntax (e.g. `hgjhgjhgkjhj`)
-                to_parse = stripped
-                if stripped.endswith(":"):
-                    to_parse = stripped + "\n    pass"
+            # Check 3: Missing Colon on Compound Statements
+            if (stripped.startswith(("if ", "elif ", "else", "def ", "async def ", "class ", "for ", "async for ", "while ", "with ", "async with ", "try", "except", "finally"))
+                  and not stripped.endswith(":")
+                  and not stripped.endswith("\\")):
+                corrected = stripped + ":"
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-PY-MISSING-COLON",
+                    "message": f"Missing colon ':' at the end of '{stripped}'. Python compound statements require a trailing colon.",
+                    "suggestion": f"Append a colon at the end of the line: '{corrected}'.",
+                    "fix_code": corrected,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
 
-                try:
-                    tree = ast.parse(to_parse)
-                    if len(tree.body) == 1 and isinstance(tree.body[0], ast.Expr):
-                        val = tree.body[0].value
-                        if isinstance(val, ast.Name) and val.id not in ("pass", "Ellipsis", "_"):
-                            findings.append({
-                                "file": file_path,
-                                "line": line_no,
-                                "severity": "CRITICAL",
-                                "category": "Syntax Error",
-                                "rule_id": "SYNTAX-PY-STRAY-IDENTIFIER",
-                                "message": f"Stray invalid identifier or undefined non-executable expression '{stripped}' found outside of any assignment or call. This causes a fatal NameError / SyntaxError.",
-                                "suggestion": f"Remove the invalid stray text '{stripped}' from source code.",
-                                "fix_code": "",
-                                "evidence": raw_content,
-                                "is_blocking": True,
-                                "source_tool": "syntax_checker"
-                            })
-                except SyntaxError as syn_err:
-                    if not any(stripped.startswith(prefix) for prefix in ("def ", "async def ", "class ", "if ", "elif ", "else", "try", "except", "finally", "while ", "for ", "async for ", "with ", "async with ")):
+            # Check 4: Orphaned except/finally without try
+            if stripped.startswith(("except ", "except:", "finally:")) and "try:" not in raw_content:
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-PY-ORPHAN-EXCEPT",
+                    "message": f"Orphaned '{stripped}' statement found without a matching 'try:' block.",
+                    "suggestion": "If this was intended as the main execution block, replace it with 'if __name__ == \"__main__\":'.",
+                    "fix_code": 'if __name__ == "__main__":',
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+            # Check 5: AST Parser for Stray Identifiers / Invalid Syntax (e.g. `hgjhgjhgkjhj`)
+            to_parse = stripped
+            if stripped.endswith(":"):
+                to_parse = stripped + "\n    pass"
+
+            try:
+                tree = ast.parse(to_parse)
+                if len(tree.body) == 1 and isinstance(tree.body[0], ast.Expr):
+                    val = tree.body[0].value
+                    if isinstance(val, ast.Name) and val.id not in ("pass", "Ellipsis", "_"):
                         findings.append({
                             "file": file_path,
                             "line": line_no,
                             "severity": "CRITICAL",
                             "category": "Syntax Error",
-                            "rule_id": "SYNTAX-PY-INVALID-SYNTAX",
-                            "message": f"Python SyntaxError in statement '{stripped}': {syn_err.msg}.",
-                            "suggestion": f"Correct the syntax error or remove invalid statement '{stripped}'.",
+                            "rule_id": "SYNTAX-PY-STRAY-IDENTIFIER",
+                            "message": f"Stray invalid identifier or undefined non-executable expression '{stripped}' found outside of any assignment or call. This causes a fatal NameError / SyntaxError.",
+                            "suggestion": f"Remove the invalid stray text '{stripped}' from source code.",
                             "fix_code": "",
                             "evidence": raw_content,
                             "is_blocking": True,
                             "source_tool": "syntax_checker"
                         })
+            except SyntaxError as syn_err:
+                if not any(stripped.startswith(prefix) for prefix in ("def ", "async def ", "class ", "if ", "elif ", "else", "try", "except", "finally", "while ", "for ", "async for ", "with ", "async with ")):
+                    findings.append({
+                        "file": file_path,
+                        "line": line_no,
+                        "severity": "CRITICAL",
+                        "category": "Syntax Error",
+                        "rule_id": "SYNTAX-PY-INVALID-SYNTAX",
+                        "message": f"Python SyntaxError in statement '{stripped}': {syn_err.msg}.",
+                        "suggestion": f"Correct the syntax error or remove invalid statement '{stripped}'.",
+                        "fix_code": "",
+                        "evidence": raw_content,
+                        "is_blocking": True,
+                        "source_tool": "syntax_checker"
+                    })
 
         return findings
+
+    @classmethod
+    def _check_java_file(cls, cf: ChangedFile, file_path: str) -> List[Dict[str, Any]]:
+        findings = []
+        has_try_in_hunks = any("try" in item["content"] for item in cf.added_lines)
+
+        for item in cf.added_lines:
+            line_no = item["line_no"]
+            raw_content = item["content"]
+            stripped = raw_content.strip()
+
+            if not stripped:
+                continue
+
+            # 1. Check for Inline comment specificity / gibberish (JAVA-DOC-003)
+            if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
+                comment_text = stripped.lstrip("/*# ").rstrip("*/ ").strip()
+                if len(comment_text) > 8 and " " not in comment_text and not comment_text.startswith("http"):
+                    findings.append({
+                        "file": file_path,
+                        "line": line_no,
+                        "severity": "WARNING",
+                        "category": "Documentation",
+                        "rule_id": "JAVA-DOC-003",
+                        "message": f"Inline comment '{stripped}' appears to be meaningless gibberish. Comments should explain the 'Why' behind the code.",
+                        "suggestion": "Remove the meaningless comment or replace it with a descriptive explanation.",
+                        "fix_code": "",
+                        "evidence": raw_content,
+                        "is_blocking": False,
+                        "source_tool": "syntax_checker"
+                    })
+                continue
+
+            # Ignore annotations
+            if stripped.startswith("@"):
+                continue
+
+            # 2. Check for Unclosed Parentheses (SYNTAX-JAVA-UNCLOSED-PAREN)
+            diff_paren = stripped.count("(") - stripped.count(")")
+            if diff_paren > 0 and not stripped.startswith(("//", "/*", "*")) and not stripped.endswith("{"):
+                corrected = stripped + (")" * diff_paren)
+                if not corrected.endswith(";"):
+                    corrected += ";"
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-JAVA-UNCLOSED-PAREN",
+                    "message": f"Unclosed parenthesis in Java statement '{stripped}' results in a fatal compilation error.",
+                    "suggestion": f"Close the parenthesis to complete the expression: '{corrected}'.",
+                    "fix_code": corrected,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+            # 3. Check for Stray Identifiers / Gibberish Tokens (SYNTAX-JAVA-STRAY-IDENTIFIER)
+            # e.g. `hgjhgjhgkjhj` or `hgjhgjhgkjhj;` or solitary non-keyword word
+            clean_word = stripped.rstrip(";").strip()
+            if re.match(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$', clean_word) and clean_word not in cls.JAVA_KEYWORDS:
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-JAVA-STRAY-IDENTIFIER",
+                    "message": f"Stray invalid identifier '{stripped}' found outside of any assignment or method call. This causes a fatal Java compilation error.",
+                    "suggestion": f"Remove the invalid stray text '{stripped}' from source code.",
+                    "fix_code": "",
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+            # 4. Check for Unclosed String Literal / Quotes (SYNTAX-JAVA-UNCLOSED-STRING)
+            unescaped_quotes = len(re.findall(r'(?<!\\)"', stripped))
+            if unescaped_quotes % 2 != 0:
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-JAVA-UNCLOSED-STRING",
+                    "message": f"Unclosed string literal in statement '{stripped}'. Java requires double quotes to be matched.",
+                    "suggestion": "Close the string literal or escape quotes properly.",
+                    "fix_code": None,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+            # Single quotes enclosing multi-character string
+            if re.search(r"(?<!\\)'[^']{2,}'", stripped):
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-JAVA-MALFORMED-CHAR-LITERAL",
+                    "message": f"Invalid character literal in statement '{stripped}'. In Java, single quotes are only for single characters ('c'). Use double quotes (\"...\") for strings.",
+                    "suggestion": "Replace single quotes with double quotes for multi-character string literals.",
+                    "fix_code": None,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+            # 5. Check for Orphaned Catch / Finally without Try (SYNTAX-JAVA-ORPHAN-BLOCK)
+            if stripped.startswith(("catch ", "catch(", "finally", "finally {")) and not has_try_in_hunks:
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-JAVA-ORPHAN-BLOCK",
+                    "message": f"Orphaned '{stripped}' block found without a matching 'try' block.",
+                    "suggestion": "Wrap the statement inside a proper 'try { ... }' block.",
+                    "fix_code": None,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+            # 6. Check for Missing Semicolons on Executable Statements (SYNTAX-JAVA-MISSING-SEMICOLON)
+            if cls._is_java_statement_missing_semicolon(stripped):
+                corrected = stripped + ";"
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": "SYNTAX-JAVA-MISSING-SEMICOLON",
+                    "message": f"Missing semicolon ';' at the end of Java statement '{stripped}'.",
+                    "suggestion": f"Terminate the statement with a semicolon: '{corrected}'.",
+                    "fix_code": corrected,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+        return findings
+
+    @classmethod
+    def _is_java_statement_missing_semicolon(cls, stripped: str) -> bool:
+        if not stripped:
+            return False
+
+        # If already ends with valid terminator or continuation tokens
+        if stripped.endswith((";", "{", "}", ",", ":", "(", "[", "\\", "+", "-", "*", "/", "&&", "||", ".", "?", "->")):
+            return False
+
+        # Annotations or comments
+        if stripped.startswith(("@", "//", "/*", "*", "*/")):
+            return False
+
+        # Control flow headers
+        if stripped.startswith((
+            "if ", "if(", "else", "for ", "for(", "while ", "while(",
+            "do", "try", "catch ", "catch(", "finally", "switch ", "switch(",
+            "case ", "default:"
+        )):
+            return False
+
+        # Class / Interface / Record / Enum declarations
+        if any(stripped.startswith(prefix) for prefix in (
+            "class ", "public class ", "private class ", "protected class ", "abstract class ",
+            "interface ", "public interface ", "private interface ",
+            "enum ", "public enum ", "private enum ",
+            "record ", "public record ", "private record ",
+            "@interface ", "public @interface "
+        )):
+            return False
+
+        # Explicit statement types that ALWAYS require semicolon
+        if stripped.startswith(("return", "throw ", "import ", "package ", "break", "continue")):
+            return True
+
+        # Variable assignments (e.g. `int x = 10` or `this.name = "John"`)
+        if "=" in stripped and not stripped.startswith(("==", "!=", "<=", ">=")):
+            return True
+
+        # Field declarations with modifiers (e.g. `private Long id`, `public String name`)
+        if re.match(r'^(?:(?:public|private|protected|static|final|volatile|transient)\s+)+[a-zA-Z0-9_<>,\[\]\s]+\s+[a-zA-Z0-9_$]+$', stripped):
+            return True
+
+        # Method calls: e.g. `System.out.println("Hello")` or `userRepository.save(user)` or `doSomething()`
+        if stripped.endswith(")") and not re.match(r'^(?:public|private|protected|static|final|abstract|void|int|long|boolean|double|float|char|byte|short)\b', stripped):
+            return True
+
+        return False
+
+    @classmethod
+    def _check_js_ts_file(cls, cf: ChangedFile, file_path: str, lang: str = "javascript") -> List[Dict[str, Any]]:
+        findings = []
+        rule_prefix = "TS" if lang == "typescript" else "JS"
+
+        for item in cf.added_lines:
+            line_no = item["line_no"]
+            raw_content = item["content"]
+            stripped = raw_content.strip()
+
+            if not stripped:
+                continue
+
+            # 1. Inline comment check
+            if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
+                comment_text = stripped.lstrip("/*# ").rstrip("*/ ").strip()
+                if len(comment_text) > 8 and " " not in comment_text and not comment_text.startswith("http"):
+                    findings.append({
+                        "file": file_path,
+                        "line": line_no,
+                        "severity": "WARNING",
+                        "category": "Documentation",
+                        "rule_id": f"{rule_prefix}-DOC-003",
+                        "message": f"Inline comment '{stripped}' appears to be meaningless gibberish. Comments should explain the 'Why' behind the code.",
+                        "suggestion": "Remove the meaningless comment or replace it with a descriptive explanation.",
+                        "fix_code": "",
+                        "evidence": raw_content,
+                        "is_blocking": False,
+                        "source_tool": "syntax_checker"
+                    })
+                continue
+
+            # 2. Unclosed Parentheses
+            diff_paren = stripped.count("(") - stripped.count(")")
+            if diff_paren > 0 and not stripped.endswith(("{", "=>", ",")):
+                corrected = stripped + (")" * diff_paren)
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": f"SYNTAX-{rule_prefix}-UNCLOSED-PAREN",
+                    "message": f"Unclosed parenthesis in statement '{stripped}' results in a SyntaxError.",
+                    "suggestion": f"Close the parenthesis: '{corrected}'.",
+                    "fix_code": corrected,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+            # 3. Stray Identifiers
+            clean_word = stripped.rstrip(";").strip()
+            if re.match(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$', clean_word) and clean_word not in cls.JS_TS_KEYWORDS:
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": f"SYNTAX-{rule_prefix}-STRAY-IDENTIFIER",
+                    "message": f"Stray invalid identifier '{stripped}' found outside of any assignment or call.",
+                    "suggestion": f"Remove the invalid stray text '{stripped}' from source code.",
+                    "fix_code": "",
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+            # 4. Unclosed String Literal / Quotes
+            unescaped_double = len(re.findall(r'(?<!\\)"', stripped))
+            unescaped_single = len(re.findall(r"(?<!\\)'", stripped))
+            unescaped_backtick = len(re.findall(r'(?<!\\)`', stripped))
+            if (unescaped_double % 2 != 0) or (unescaped_single % 2 != 0) or (unescaped_backtick % 2 != 0):
+                findings.append({
+                    "file": file_path,
+                    "line": line_no,
+                    "severity": "CRITICAL",
+                    "category": "Syntax Error",
+                    "rule_id": f"SYNTAX-{rule_prefix}-UNCLOSED-STRING",
+                    "message": f"Unclosed string or template literal in statement '{stripped}'.",
+                    "suggestion": "Ensure matching quote or backtick closures.",
+                    "fix_code": None,
+                    "evidence": raw_content,
+                    "is_blocking": True,
+                    "source_tool": "syntax_checker"
+                })
+                continue
+
+        return findings
+

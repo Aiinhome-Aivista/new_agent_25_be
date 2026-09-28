@@ -12,11 +12,11 @@ class FindingValidator:
         combined = f"{rule_id} {message} {evidence} {fix_code or ''}".lower()
         if "stray" in combined or "undefined identifier" in combined or "invalid identifier" in combined or "stray-identifier" in combined:
             return "stray_identifier"
-        if "syntax error" in combined or "syntaxerror" in combined or "invalid syntax" in combined or "missing colon" in combined:
+        if "syntax error" in combined or "syntaxerror" in combined or "invalid syntax" in combined or "missing colon" in combined or "missing semicolon" in combined or "semicolon" in combined:
             return "syntax_error"
         if "dunder" in combined or "__name__" in combined or "main entrypoint" in combined or "if  name" in combined or "if name" in combined:
             return "dunder_main"
-        if "unclosed paren" in combined or "syntax-py-unclosed-paren" in combined or "unclosed parenthesis" in combined:
+        if "unclosed paren" in combined or "unclosed parenthesis" in combined or "syntax-py-unclosed-paren" in combined or "syntax-java-unclosed-paren" in combined or "syntax-js-unclosed-paren" in combined:
             return "unclosed_parenthesis"
         if "0.0.0.0" in combined or "sec-py-host" in combined or "wildcard" in combined or "host binding" in combined:
             return "wildcard_host"
@@ -122,7 +122,9 @@ class FindingValidator:
                            ("if " in msg_lower and lt_lower.startswith("if ")) or
                            (("0.0.0.0" in msg_lower or "host" in msg_lower) and ("0.0.0.0" in lt_lower or "host" in lt_lower or "uvicorn" in lt_lower)) or
                            ("create_app" in msg_lower and "create_app" in lt_lower) or
-                           ("parenthes" in msg_lower and ("(" in line_text or ")" in line_text))):
+                           ("parenthes" in msg_lower and ("(" in line_text or ")" in line_text)) or
+                           ("semicolon" in msg_lower and not line_text.strip().endswith(";")) or
+                           ("stray" in msg_lower and len(line_text.strip().split()) == 1)):
                             line_no = candidate_line
                             break
 
@@ -135,7 +137,7 @@ class FindingValidator:
                     all_diff_text = " ".join(matched_content_map.values()).lower()
                     ev_lower = (evidence or "").lower()
                     msg_lower = (message or "").lower()
-                    if not any(token in all_diff_text for token in ("password", "secret", "0.0.0.0", "eval(", "exec(", "select", "token") if token in ev_lower or token in msg_lower):
+                    if not any(token in all_diff_text for token in ("password", "secret", "0.0.0.0", "eval(", "exec(", "select", "token", ";", "(", ")") if token in ev_lower or token in msg_lower):
                         continue
                 else:
                     continue

@@ -79,8 +79,8 @@ Git Diff:
 Critical Review Guidelines:
 1. Exhaustive Inspection: Examine the entire diff line by line. If the diff contains multiple distinct errors/bugs across different lines, you MUST report ALL of them as separate entries in the `issues` array.
 2. Defect Scope: Inspect modified code for:
-   - Syntax errors, stray tokens, gibberish identifiers, typos, and bad conventions (e.g. stray text like `hgjhgjhgkjhj` -> report as Syntax Error with fix to delete it, `if name == " main ":` -> `if __name__ == "__main__":`).
-   - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg`) should be reported as Rule ID `PY-DOC-003` (Inline Comment Specificity) with a fix to delete them. Do NOT treat comments as code or unused variables.
+   - Syntax errors, missing semicolons in Java/JS/TS, unclosed brackets/parentheses/quotes, stray tokens, gibberish identifiers, typos, and bad conventions (e.g. Java missing semicolon `return user` -> `return user;`, stray text like `hgjhgjhgkjhj` -> report as Syntax Error with fix `""`, Python `if name == " main ":` -> `if __name__ == "__main__":`).
+   - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg` or `// kjhgkjgh;kjbhg`) should be reported as Rule ID `DOC-003` / `PY-DOC-003` / `JAVA-DOC-003` (Inline Comment Specificity) with a fix to delete them. Do NOT treat comments as code or unused variables.
    - Security vulnerabilities (e.g. binding to 0.0.0.0, SQL injection, eval/exec execution, secrets/tokens, command injection, XSS).
    - Logic bugs, runtime exceptions, missing null/type checks, unhandled edge cases.
    - Resource management (unclosed sockets, connections, files).
@@ -91,22 +91,22 @@ Critical Review Guidelines:
 4. For EVERY detected issue:
    - Explain clearly WHY it is an issue in `message`.
    - Provide concrete, step-by-step remediation advice in `suggestion`.
-   - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE (e.g. `if __name__ == "__main__":` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line). NEVER write plain English sentences or explanations in `fix_code`! If no single-line/block code replacement is applicable, set `"fix_code": null`.
+   - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE (e.g. `if __name__ == "__main__":` or `return user;` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line). NEVER write plain English sentences or explanations in `fix_code`! If no single-line/block code replacement is applicable, set `"fix_code": null`.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
   "issues": [
     {{
-      "file": "path/to/file.py",
+      "file": "path/to/file.java",
       "line": 107,
       "severity": "CRITICAL", // INFO, WARNING, ERROR, CRITICAL
-      "category": "Quality", // Security, Quality, Standards, Bug, Error Handling
-      "rule_id": "QUAL-PY-SYNTAX-01",
+      "category": "Syntax Error", // Security, Quality, Standards, Bug, Error Handling, Syntax Error
+      "rule_id": "SYNTAX-JAVA-MISSING-SEMICOLON",
       "message": "Detailed description of the issue grounded in diff.",
       "suggestion": "Clear, actionable explanation on how to fix it.",
-      "fix_code": "if __name__ == \\"__main__\\":", // ONLY real code or null! NEVER English explanation text.
+      "fix_code": "return user;", // ONLY real code or null! NEVER English explanation text.
       "evidence": "Observed code snippet from diff",
-      "is_blocking": false
+      "is_blocking": true
     }}
   ],
   "passedChecks": [

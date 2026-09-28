@@ -73,3 +73,37 @@ def test_python_sqli_and_pickle_detection():
     assert "SEC-PY-SQLI-01" in rule_ids
     assert "SEC-PY-PICKLE-01" in rule_ids
     assert all(f.is_blocking for f in findings)
+
+def test_java_syntax_checker_detection():
+    from app.tools.syntax_checker import SyntaxChecker
+
+    changed_file = ChangedFile(
+        old_path="src/main/java/com/example/UserService.java",
+        new_path="src/main/java/com/example/UserService.java",
+        status="MODIFIED",
+        hunks=[],
+        raw_patch=""
+    )
+    changed_file.added_lines = [
+        {"line_no": 15, "content": "    return user"},  # Missing semicolon
+        {"line_no": 20, "content": "    userRepository.findById(id"},  # Unclosed paren
+        {"line_no": 25, "content": "    hgjhgjhgkjhj"},  # Stray identifier
+        {"line_no": 30, "content": '    String message = "unclosed;'},  # Unclosed string quote
+        {"line_no": 35, "content": "    // kjhgkjghkjbhg"}  # Meaningless comment
+    ]
+
+    findings = SyntaxChecker.check_changed_files([changed_file], language="java")
+    assert len(findings) == 5
+
+    rule_map = {f["line"]: f["rule_id"] for f in findings}
+    assert rule_map[15] == "SYNTAX-JAVA-MISSING-SEMICOLON"
+    assert rule_map[20] == "SYNTAX-JAVA-UNCLOSED-PAREN"
+    assert rule_map[25] == "SYNTAX-JAVA-STRAY-IDENTIFIER"
+    assert rule_map[30] == "SYNTAX-JAVA-UNCLOSED-STRING"
+    assert rule_map[35] == "JAVA-DOC-003"
+
+    # Verify fix_code for missing semicolon
+    missing_semi = next(f for f in findings if f["line"] == 15)
+    assert missing_semi["fix_code"] == "return user;"
+    assert missing_semi["is_blocking"] is True
+
