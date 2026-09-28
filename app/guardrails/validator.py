@@ -30,6 +30,8 @@ class FindingValidator:
             return "secret_leak"
         if "bare except" in combined or "qual-py-exc" in combined:
             return "bare_except"
+        if "duplicate" in combined or "qual-dup" in combined or "dry" in combined or "reusab" in combined:
+            return "code_duplication"
         return f"custom_{rule_id or message[:20]}"
 
     @staticmethod
@@ -185,7 +187,7 @@ class FindingValidator:
                         cand_weight = severity_weights.get(candidate.severity, 1) + (3 if candidate.fix_code else 0)
                         exist_weight = severity_weights.get(existing.severity, 1) + (3 if existing.fix_code else 0)
                         # Prefer deterministic tools over AI hallucinations
-                        if candidate.source_tool in ("syntax_checker", "secret_scanner", "deterministic_sast") and existing.source_tool not in ("syntax_checker", "secret_scanner", "deterministic_sast"):
+                        if candidate.source_tool in ("syntax_checker", "secret_scanner", "deterministic_sast", "duplicate_code_agent") and existing.source_tool not in ("syntax_checker", "secret_scanner", "deterministic_sast", "duplicate_code_agent"):
                             valid_findings[idx] = candidate
                         elif cand_weight > exist_weight:
                             valid_findings[idx] = candidate
@@ -199,7 +201,7 @@ class FindingValidator:
                     if existing_line_key == line_key:
                         cand_weight = severity_weights.get(candidate.severity, 1) + (3 if candidate.fix_code else 0)
                         exist_weight = severity_weights.get(existing.severity, 1) + (3 if existing.fix_code else 0)
-                        if candidate.source_tool in ("syntax_checker", "secret_scanner", "deterministic_sast") and existing.source_tool not in ("syntax_checker", "secret_scanner", "deterministic_sast"):
+                        if candidate.source_tool in ("syntax_checker", "secret_scanner", "deterministic_sast", "duplicate_code_agent") and existing.source_tool not in ("syntax_checker", "secret_scanner", "deterministic_sast", "duplicate_code_agent"):
                             valid_findings[idx] = candidate
                         elif cand_weight > exist_weight:
                             valid_findings[idx] = candidate

@@ -81,6 +81,7 @@ Critical Review Guidelines:
 2. Defect Scope: Inspect modified code for:
    - Syntax errors, missing semicolons in Java/JS/TS, unclosed brackets/parentheses/quotes, stray tokens, gibberish identifiers, typos, and bad conventions (e.g. Java missing semicolon `return user` -> `return user;`, stray text like `hgjhgjhgkjhj` -> report as Syntax Error with fix `""`, Python `if name == " main ":` -> `if __name__ == "__main__":`).
    - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg` or `// kjhgkjgh;kjbhg`) should be reported as Rule ID `DOC-003` / `PY-DOC-003` / `JAVA-DOC-003` (Inline Comment Specificity) with a fix to delete them. Do NOT treat comments as code or unused variables.
+   - Code duplication / redundancy: Suggest refactoring repeated logic into a shared reusable utility function, service, or helper method to follow DRY principles. Do NOT suggest deleting working business logic unless it is strictly dead/unreachable code. Set "fix_code": null for refactoring suggestions.
    - Security vulnerabilities (e.g. binding to 0.0.0.0, SQL injection, eval/exec execution, secrets/tokens, command injection, XSS).
    - Logic bugs, runtime exceptions, missing null/type checks, unhandled edge cases.
    - Resource management (unclosed sockets, connections, files).
@@ -90,7 +91,7 @@ Critical Review Guidelines:
    - Do NOT invent or hallucinate whole-file / line 0 generic textbook rules (e.g. 'avoid queries in loops', 'avoid hardcoding secrets') unless that exact defect is explicitly written in the added diff lines!
 4. For EVERY detected issue:
    - Explain clearly WHY it is an issue in `message`.
-   - Provide concrete, step-by-step remediation advice in `suggestion`.
+   - Provide concrete, step-by-step remediation advice in `suggestion` (focusing on modular reusability for duplicate logic).
    - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE (e.g. `if __name__ == "__main__":` or `return user;` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line). NEVER write plain English sentences or explanations in `fix_code`! If no single-line/block code replacement is applicable, set `"fix_code": null`.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
@@ -119,10 +120,9 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown wr
 }}
 """
 
-TEST_COVERAGE_PROMPT = """You are an automated Test Coverage Analysis Agent.
-Examine the following Git diff and acceptance criteria.
-Identify if adequate unit/integration tests exist in the changed code, and list specific missing test scenarios (happy path, negative path, edge cases, error conditions).
-Analyze the following Git diff and propose targeted, realistic unit/integration test cases.
+TEST_COVERAGE_PROMPT = """You are a Senior Quality Assurance Architect & Automated Test Engineering Agent.
+Analyze the following Git diff, target language ({language}), target framework ({framework}), and acceptance criteria.
+Identify all missing unit test scenarios and edge cases that MUST be tested before this code is pushed to production.
 
 Target Language: {language}
 Target Framework: {framework}
@@ -138,27 +138,43 @@ Git Diff:
 {diff_text}
 ```
 
-Rules:
-1. Propose missing test scenarios (happy path, negative path, edge cases, error conditions).
-2. Provide REAL, ready-to-run test code in `suggested_test_code` matching the Target Language:
-   - Python: use `pytest` (e.g. `def test_<name>(): ...`)
-   - TypeScript / JavaScript: use `jest` / `vitest` (e.g. `test('<name>', () => {{ ... }})`)
-   - Java: use JUnit 5 (e.g. `@Test void should...() {{ ... }}`)
-   - Go: use standard `testing` (e.g. `func Test*(t *testing.T) {{ ... }}`)
-3. Check if test files (e.g. *Test.java, *Spec.groovy, test_*.py, *.test.ts) are modified or present in the diff.
-4. Do NOT claim a test exists if no corresponding test file is in the diff.
-5. Propose highly realistic, context-aware test scenarios.
-6. Ensure the suggested test code is syntactically valid for the target language and testing framework.
+Critical Test Writing Guidelines:
+1. Scenario Coverage:
+   - Happy Path: Verify standard successful operations with valid inputs, expected return payloads, and correct status codes (e.g. 200 OK, 201 Created).
+   - Negative Path: Verify that invalid inputs, missing fields, or unauthorized requests correctly trigger validation failures or domain exceptions (e.g. 400 Bad Request, 404 Not Found, 409 Conflict, DuplicateEmailException, ResourceNotFoundException).
+   - Edge Cases & Boundary Conditions: Verify null safety, empty collections/strings, extreme numeric boundaries, special characters, and idempotency.
+
+2. Production-Grade Test Code Quality in `suggested_test_code`:
+   - Follow the Arrange-Act-Assert (AAA) or Given-When-Then pattern with clear section comments:
+     // Given / Arrange
+     // When / Act
+     // Then / Assert
+   - Provide COMPLETE, ready-to-run, syntactically valid test methods.
+   - For Java (JUnit 5 + Mockito / AssertJ / MockMvc):
+     - Use `@Test` and `@DisplayName("...")` with a clear, descriptive method name (e.g. `shouldRegisterUserSuccessfully()`, `shouldThrowDuplicateEmailExceptionWhenEmailExists()`, `shouldReturn200WhenUpdateUserSucceeds()`).
+     - Use realistic mock declarations and assertions (`when(...).thenReturn(...)`, `verify(...)`, `assertThrows(...)`, `assertEquals(...)`, `assertNotNull(...)`, `mockMvc.perform(...)`).
+     - NEVER break tokens, numbers, or string literals mid-word across lines (e.g. `1L`, `UserResponse`, `userService.registerUser(request)` must never be split across line breaks).
+   - For Python (pytest):
+     - Use `def test_<action>_<condition>():` with clean fixtures, mock setups (`mocker.patch`), and `with pytest.raises(Exception):`.
+   - For TypeScript / JavaScript (Vitest / Jest):
+     - Use `describe('<Component/Service>', () => {{ it('should ...', async () => {{ ... }}); }});` with `expect(...).toEqual(...)` and `jest.spyOn()` / `vi.spyOn()`.
+   - For Go:
+     - Use table-driven tests or `func Test<Name>(t *testing.T) {{ ... }}`.
+
+3. File & Method Naming:
+   - `target_file`: MUST be the test file path (e.g. `src/test/java/com/example/crudpoc/service/UserServiceTest.java`, `tests/test_service.py`, `src/services/userService.test.ts`).
+   - `target_method`: MUST be the exact method under test in the modified source code (e.g. `createUser`, `updateUser`, `registerUser`).
+   - `description`: A clear, concise sentence stating what the test case verifies.
 
 Respond ONLY with a valid JSON object matching this exact schema (no markdown wrapping, no explanation):
 {{
   "missingTests": [
     {{
-      "scenario_type": "negative_path", // happy_path, negative_path, edge_case, regression
-      "target_file": "path/to/file.py",
-      "target_method": "methodName",
-      "description": "Specific scenario to test.",
-      "suggested_test_code": "def test_should_reject_invalid():\\n    # Assert test condition",
+      "scenario_type": "happy_path", // happy_path, negative_path, edge_case, regression
+      "target_file": "src/test/java/com/example/crudpoc/service/UserServiceTest.java",
+      "target_method": "registerUser",
+      "description": "Verify that registerUser successfully saves and returns the new user.",
+      "suggested_test_code": "@Test\\n@DisplayName(\\"Should successfully register new user with valid request\\")\\nvoid shouldRegisterUserSuccessfully() {{\\n    // Given\\n    CreateUserRequest request = new CreateUserRequest(\\"Alice\\", \\"alice@test.com\\", \\"secret123\\");\\n    when(userRepository.existsByEmail(anyString())).thenReturn(false);\\n    when(userRepository.save(any(User.class))).thenReturn(new User(1L, \\"Alice\\", \\"alice@test.com\\"));\\n\\n    // When\\n    UserResponse response = userService.registerUser(request);\\n\\n    // Then\\n    assertNotNull(response);\\n    assertEquals(\\"Alice\\", response.getName());\\n    verify(userRepository, times(1)).save(any(User.class));\\n}}",
       "priority": "HIGH" // HIGH, MEDIUM, LOW
     }}
   ],
