@@ -299,6 +299,7 @@ class SyntaxChecker:
 
             # Single quotes enclosing multi-character string
             if re.search(r"(?<!\\)'[^']{2,}'", stripped):
+                fixed_quotes = re.sub(r"(?<!\\)'([^']{2,})'", r'"\1"', stripped)
                 findings.append({
                     "file": file_path,
                     "line": line_no,
@@ -306,8 +307,8 @@ class SyntaxChecker:
                     "category": "Syntax Error",
                     "rule_id": "SYNTAX-JAVA-MALFORMED-CHAR-LITERAL",
                     "message": f"Invalid character literal in statement '{stripped}'. In Java, single quotes are only for single characters ('c'). Use double quotes (\"...\") for strings.",
-                    "suggestion": "Replace single quotes with double quotes for multi-character string literals.",
-                    "fix_code": None,
+                    "suggestion": f"Replace single quotes with double quotes: '{fixed_quotes}'.",
+                    "fix_code": fixed_quotes,
                     "evidence": raw_content,
                     "is_blocking": True,
                     "source_tool": "syntax_checker"

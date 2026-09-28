@@ -93,6 +93,7 @@ class FindingValidator:
                 continue
 
             line_no = int(finding.get("line") or finding.get("line_number") or 0)
+            end_line_no = int(finding.get("end_line") or finding.get("endLine") or 0)
             message = SecretScanner.redact_text(str(finding.get("message", "")).strip())
             suggestion = SecretScanner.redact_text(str(finding.get("suggestion", "")).strip())
             evidence = SecretScanner.redact_text(str(finding.get("evidence", "")).strip())
@@ -101,6 +102,10 @@ class FindingValidator:
                 fix_code = ""
             elif fix_code_val:
                 fix_code = SecretScanner.redact_text(str(fix_code_val).strip())
+                # Strip markdown code block fences if present
+                if fix_code.startswith("```"):
+                    fix_code = re.sub(r"^```[a-zA-Z0-9_-]*\r?\n", "", fix_code)
+                    fix_code = re.sub(r"\r?\n```$", "", fix_code).strip()
             else:
                 fix_code = None
 
@@ -152,16 +157,20 @@ class FindingValidator:
             rule_id = finding.get("rule_id")
             is_blocking = finding.get("is_blocking", severity in ("ERROR", "CRITICAL"))
 
-            # Ensure fix_code is a complete line replacement if evidence contains uvicorn/app call
-            if fix_code and evidence:
+            # Ensure fix_code is a complete line replacement for single line issues
+            if fix_code and evidence and end_line_no <= line_no:
                 ev_stripped = evidence.strip()
                 if "0.0.0.0" in ev_stripped and ("host" in fix_code.lower() or "127.0.0.1" in fix_code):
-                    if ("uvicorn.run" in ev_stripped or "app.run" in ev_stripped) and ("uvicorn.run" not in fix_code and "app.run" not in fix_code):
+                    if ("uvicorn.run" in ev_stripped or "app.run" in ev_stripped or "bind" in ev_stripped) and ("uvicorn.run" not in fix_code and "app.run" not in fix_code and "bind" not in fix_code):
                         fix_code = re.sub(r"""['"]0\.0\.0\.0['"]""", '"127.0.0.1"', ev_stripped)
+                elif "debug=true" in ev_stripped.lower() and "debug=" in fix_code.lower() and "app.run" not in fix_code:
+                    if "app.run" in ev_stripped:
+                        fix_code = re.sub(r"""debug\s*=\s*True""", "debug=False", ev_stripped, flags=re.IGNORECASE)
 
             candidate = GroundedIssueSchema(
                 file=actual_file_path or "workspace",
                 line=line_no,
+                end_line=end_line_no if end_line_no > 0 else None,
                 severity=severity,
                 category=category,
                 rule_id=rule_id,
