@@ -12,11 +12,11 @@ class DuplicateCodeAgent:
     to detect duplicate code (intra-file and inter-file) and promote DRY principles.
     """
 
-    # 70% threshold to reliably detect duplicate methods and snippets
-    SIMILARITY_THRESHOLD = 0.70
+    # 85% threshold to reliably detect duplicate methods and snippets and avoid false positives
+    SIMILARITY_THRESHOLD = 0.85
 
-    # Minimum lines in a chunk for duplicate check (handles 3+ line controller/service methods)
-    MIN_CHUNK_LINES = 3
+    # Minimum lines in a chunk for duplicate check (handles 5+ line controller/service methods)
+    MIN_CHUNK_LINES = 5
 
     @classmethod
     def execute(

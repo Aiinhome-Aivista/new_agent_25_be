@@ -144,7 +144,14 @@ class FindingValidator:
                     all_diff_text = " ".join(matched_content_map.values()).lower()
                     ev_lower = (evidence or "").lower()
                     msg_lower = (message or "").lower()
-                    if not any(token in all_diff_text for token in ("password", "secret", "0.0.0.0", "eval(", "exec(", "select", "token", ";", "(", ")") if token in ev_lower or token in msg_lower):
+                    
+                    # Allow if evidence is found in the diff
+                    if ev_lower and ev_lower in all_diff_text:
+                        pass
+                    # Allow if the issue is about missing/undefined logic which naturally won't match a diff token
+                    elif any(keyword in msg_lower for keyword in ("missing", "undefined", "not defined", "import", "reference", "security", "duplicate")):
+                        pass
+                    elif not any(token in all_diff_text for token in ("password", "secret", "0.0.0.0", "eval(", "exec(", "select", "token", ";", "(", ")") if token in ev_lower or token in msg_lower):
                         continue
                 else:
                     continue
