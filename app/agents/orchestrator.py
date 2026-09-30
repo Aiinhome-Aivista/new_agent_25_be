@@ -27,6 +27,7 @@ class ReviewOrchestrator:
         repository_name: str = "workspace",
         branch: str = "main",
         language: Optional[str] = None,
+        language_version: Optional[str] = None,
         framework: Optional[str] = None,
         author: str = "developer"
     ) -> Dict[str, Any]:
@@ -164,6 +165,7 @@ class ReviewOrchestrator:
                         raw_diff=diff_result["raw_diff"],
                         acceptance_criteria=ac_result["criteria"],
                         language=language,
+                        language_version=language_version,
                         framework=framework,
                         codebase_context=codebase_context
                     )
@@ -186,6 +188,7 @@ class ReviewOrchestrator:
                         raw_diff=diff_result["raw_diff"],
                         acceptance_criteria=ac_result["criteria"],
                         language=language,
+                        language_version=language_version,
                         framework=framework
                     )
                     log_step("AnalyzeTestCoverage", "TestCoverageAgent", "AGENT_END", {"missing_count": len(test_result["missing_tests"])}, int((time.time() - t0)*1000))

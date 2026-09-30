@@ -60,6 +60,7 @@ CODE_QUALITY_PROMPT = """You are a Principal Software Engineer and Staff Securit
 Perform an exhaustive inspection of the following Git diff for bugs, syntax mistakes, typos, security flaws, performance bottlenecks, and architectural standards.
 
 Target Language: {language}
+Target Language Version: {language_version}
 Target Framework: {framework}
 
 Coding Standards & RAG Context:
@@ -82,8 +83,9 @@ Critical Review Guidelines:
    - Syntax errors, missing semicolons in Java/JS/TS, unclosed brackets/parentheses/quotes, stray tokens, gibberish identifiers, typos, and bad conventions (e.g. Java missing semicolon `return user` -> `return user;`, stray text like `hgjhgjhgkjhj` -> report as Syntax Error with fix `""`, Python `if name == " main ":` -> `if __name__ == "__main__":`).
    - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg` or `// kjhgkjgh;kjbhg`) should be reported as Rule ID `DOC-003` / `PY-DOC-003` / `JAVA-DOC-003` (Inline Comment Specificity) with a fix to delete them (`fix_code: ""`). Do NOT treat comments as code or unused variables.
    - Code duplication / redundancy: Carefully analyze the whole codebase context provided. Only flag code as a duplicate if the exact or highly similar logic actually exists elsewhere. Avoid false positives: do NOT flag coincidental structural similarities if the business contexts are completely different. Suggest refactoring repeated logic into a shared reusable utility function. Set "fix_code": null for refactoring suggestions.
+   - Modern Language Features: You MUST check the provided 'Target Language' and 'Target Language Version'. Strongly prefer the most modern features and syntax available in that specific version. If the code uses outdated syntax that has a cleaner, more modern alternative in the provided version, you MUST flag the outdated syntax as a Quality issue and provide the FULL modernized code snippet in `fix_code`. Do NOT leave `fix_code` empty for syntax upgrades.
    - Undefined Methods & Missing Functions: You MUST verify that every single method called on a dependency (e.g. `userService.patchUser(...)` or `policyService.uploadPolicy(...)`) actually exists in the codebase context. If the method is NOT explicitly defined in its respective class (e.g., if `patchUser` is missing from `UserService`), you MUST report a CRITICAL issue stating: "The method is undefined/does not exist in the codebase." with `fix_code: null`. Do not assume the method exists if you cannot see it.
-   - Security vulnerabilities (e.g. binding to 0.0.0.0, SQL injection, eval/exec execution, secrets/tokens, command injection, XSS).
+   - Security vulnerabilities (e.g. binding to 0.0.0.0, SQL injection, eval/exec execution, secrets/tokens, command injection, XSS). Do NOT hallucinate SQL injection for simple string concatenation unless it is demonstrably inside a database query execution method (like `executeQuery`).
    - Logic bugs, runtime exceptions, missing null/type checks, unhandled edge cases.
    - Resource management (unclosed sockets, connections, files).
    - Ignore minor formatting, spacing, or whitespace issues (like empty lines). Do NOT report them as issues.
@@ -128,6 +130,7 @@ Analyze the following Git diff, target language ({language}), target framework (
 Identify all missing unit test scenarios and edge cases that MUST be tested before this code is pushed to production.
 
 Target Language: {language}
+Target Language Version: {language_version}
 Target Framework: {framework}
 
 Testing Rules & Standards:

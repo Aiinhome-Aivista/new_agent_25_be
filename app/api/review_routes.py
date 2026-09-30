@@ -16,6 +16,7 @@ def create_review():
         repository_name = data.get("repository_name", "workspace")
         branch = data.get("branch", "main")
         language = data.get("language")
+        language_version = data.get("language_version")
         framework = data.get("framework")
         author = data.get("author", "developer")
 
@@ -25,6 +26,7 @@ def create_review():
             repository_name=repository_name,
             branch=branch,
             language=language,
+            language_version=language_version,
             framework=framework,
             author=author
         )

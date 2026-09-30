@@ -68,6 +68,7 @@ class TestCoverageAgent:
         raw_diff: str,
         acceptance_criteria: List[Dict[str, Any]],
         language: str = "python",
+        language_version: str = "",
         framework: str = "standard"
     ) -> Dict[str, Any]:
         # Check if test files are modified in diff
@@ -87,6 +88,7 @@ class TestCoverageAgent:
 
         prompt = TEST_COVERAGE_PROMPT.format(
             language=language,
+            language_version=language_version,
             framework=framework or "standard",
             standards_text=standards_text,
             criteria_json=json.dumps(acceptance_criteria, indent=2),

@@ -19,6 +19,7 @@ class CodeQualityAgent:
         raw_diff: str,
         acceptance_criteria: List[Dict[str, Any]],
         language: str = "java",
+        language_version: str = "",
         framework: str = "spring-boot",
         codebase_context: str = ""
     ) -> Dict[str, Any]:
@@ -66,12 +67,17 @@ class CodeQualityAgent:
         standards = standards_store.search_relevant_standards(language=language, framework=framework, query=raw_diff[:1000])
         standards_text = "\n".join([f"- [{s['rule_code']}] {s['title']}: {s['description']}" for s in standards])
 
+        if language_version:
+            standards_text += f"\n- [LANG-VERSION-01] Strict Version Compliance: You MUST enforce {language} {language_version} features. If old syntax is used (e.g., prior to {language_version}), you MUST report it as an issue and provide the modernized code."
+
+
         # 4. Format annotated diff with real line numbers for exact LLM grounding
         annotated_diff = cls._format_annotated_diff(changed_files, raw_diff, max_chars=8000)
 
         # 5. LLM Code Quality & Standards Reasoning
         prompt = CODE_QUALITY_PROMPT.format(
             language=language,
+            language_version=language_version,
             framework=framework or "standard",
             standards_text=standards_text,
             codebase_context=codebase_context if codebase_context else "(Codebase not indexed — index workspace for full context-aware review)",
