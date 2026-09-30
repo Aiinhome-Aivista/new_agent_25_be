@@ -87,24 +87,7 @@ class SyntaxChecker:
                     })
                 continue
 
-            # Check 1: Unclosed Parentheses / Call Syntax (e.g. `app = create_app(`)
-            diff_paren = stripped.count("(") - stripped.count(")")
-            if diff_paren > 0 and not stripped.startswith(("@", "def ", "class ", "if ", "while ", "with ", "for ")):
-                corrected = stripped + (")" * diff_paren)
-                findings.append({
-                    "file": file_path,
-                    "line": line_no,
-                    "severity": "CRITICAL",
-                    "category": "Syntax Error",
-                    "rule_id": "SYNTAX-PY-UNCLOSED-PAREN",
-                    "message": f"Unclosed parenthesis in statement '{stripped}' results in a fatal Python SyntaxError.",
-                    "suggestion": f"Close the parenthesis to complete the call: '{corrected}'.",
-                    "fix_code": corrected,
-                    "evidence": raw_content,
-                    "is_blocking": True,
-                    "source_tool": "syntax_checker"
-                })
-                continue
+            # Check 1: Unclosed Parentheses / Call Syntax removed to prevent false positives on multi-line statements.
 
             # Check 2: Malformed main dunder (e.g. `if  __name__ == "  _main__ ":` or `if name == " main ":`)
             if stripped.startswith("if ") and ("name" in stripped and "main" in stripped):
@@ -208,6 +191,50 @@ class SyntaxChecker:
         findings = []
         has_try_in_hunks = any("try" in item["content"] for item in cf.added_lines)
 
+        # Statement-based running parenthesis balance check
+        paren_balance = 0
+        statement_start_line = -1
+        statement_text = ""
+        
+        for item in cf.added_lines:
+            line_no = item["line_no"]
+            content = item["content"]
+            stripped = content.strip()
+            
+            if not stripped or stripped.startswith(("//", "/*", "*")):
+                continue
+                
+            diff = stripped.count("(") - stripped.count(")")
+            paren_balance += diff
+            statement_text += content + "\n"
+            
+            if paren_balance > 0 and statement_start_line == -1:
+                statement_start_line = line_no
+                
+            if stripped.endswith(";") or stripped.endswith("{") or stripped.endswith("}"):
+                if paren_balance > 0 and statement_start_line != -1:
+                    findings.append({
+                        "file": file_path,
+                        "line": statement_start_line,
+                        "severity": "CRITICAL",
+                        "category": "Syntax Error",
+                        "rule_id": "SYNTAX-JAVA-UNCLOSED-PAREN-MULTILINE",
+                        "message": f"Unclosed parenthesis in Java statement starting at line {statement_start_line}. Missing {paren_balance} closing parenthesis ')'.",
+                        "suggestion": "Close the parenthesis properly before the statement ends.",
+                        "fix_code": None,
+                        "evidence": statement_text.strip(),
+                        "is_blocking": True,
+                        "source_tool": "syntax_checker"
+                    })
+                # Reset for next statement
+                paren_balance = 0
+                statement_start_line = -1
+                statement_text = ""
+            elif paren_balance <= 0:
+                paren_balance = 0
+                statement_start_line = -1
+                statement_text = ""
+
         for item in cf.added_lines:
             line_no = item["line_no"]
             raw_content = item["content"]
@@ -240,8 +267,9 @@ class SyntaxChecker:
                 continue
 
             # 2. Check for Unclosed Parentheses (SYNTAX-JAVA-UNCLOSED-PAREN)
+            # Only flag if the line explicitly ends with a semicolon, meaning the statement is supposedly complete but missing a parenthesis.
             diff_paren = stripped.count("(") - stripped.count(")")
-            if diff_paren > 0 and not stripped.startswith(("//", "/*", "*")) and not stripped.endswith("{"):
+            if diff_paren > 0 and stripped.endswith(";"):
                 corrected = stripped + (")" * diff_paren)
                 if not corrected.endswith(";"):
                     corrected += ";"
@@ -406,6 +434,50 @@ class SyntaxChecker:
         findings = []
         rule_prefix = "TS" if lang == "typescript" else "JS"
 
+        # Statement-based running parenthesis balance check
+        paren_balance = 0
+        statement_start_line = -1
+        statement_text = ""
+        
+        for item in cf.added_lines:
+            line_no = item["line_no"]
+            content = item["content"]
+            stripped = content.strip()
+            
+            if not stripped or stripped.startswith(("//", "/*", "*")):
+                continue
+                
+            diff = stripped.count("(") - stripped.count(")")
+            paren_balance += diff
+            statement_text += content + "\n"
+            
+            if paren_balance > 0 and statement_start_line == -1:
+                statement_start_line = line_no
+                
+            if stripped.endswith(";") or stripped.endswith("{") or stripped.endswith("}"):
+                if paren_balance > 0 and statement_start_line != -1:
+                    findings.append({
+                        "file": file_path,
+                        "line": statement_start_line,
+                        "severity": "CRITICAL",
+                        "category": "Syntax Error",
+                        "rule_id": f"SYNTAX-{rule_prefix}-UNCLOSED-PAREN-MULTILINE",
+                        "message": f"Unclosed parenthesis in statement starting at line {statement_start_line}. Missing {paren_balance} closing parenthesis ')'.",
+                        "suggestion": "Close the parenthesis properly.",
+                        "fix_code": None,
+                        "evidence": statement_text.strip(),
+                        "is_blocking": True,
+                        "source_tool": "syntax_checker"
+                    })
+                # Reset for next statement
+                paren_balance = 0
+                statement_start_line = -1
+                statement_text = ""
+            elif paren_balance <= 0:
+                paren_balance = 0
+                statement_start_line = -1
+                statement_text = ""
+
         for item in cf.added_lines:
             line_no = item["line_no"]
             raw_content = item["content"]
@@ -434,8 +506,9 @@ class SyntaxChecker:
                 continue
 
             # 2. Unclosed Parentheses
+            # Only flag if the line explicitly ends with a semicolon, meaning the statement is supposedly complete but missing a parenthesis.
             diff_paren = stripped.count("(") - stripped.count(")")
-            if diff_paren > 0 and not stripped.endswith(("{", "=>", ",")):
+            if diff_paren > 0 and stripped.endswith(";"):
                 corrected = stripped + (")" * diff_paren)
                 findings.append({
                     "file": file_path,

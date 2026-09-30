@@ -81,6 +81,15 @@ class DuplicateCodeAgent:
                     ).ratio()
                     effective_sim = max(vector_sim, text_ratio)
 
+                    # Penalize similarity if they are distinct functions (e.g., structurally similar wrappers like controllers)
+                    sig1 = cls._extract_function_signature(chunk_text, language)
+                    sig2 = cls._extract_function_signature(match.get("text", ""), language)
+                    if sig1 and sig2:
+                        fn_name1, _, _ = sig1
+                        fn_name2, _, _ = sig2
+                        if fn_name1 and fn_name2 and fn_name1 != fn_name2:
+                            effective_sim = effective_sim * 0.75  # 25% penalty for different method names
+
                     if effective_sim >= cls.SIMILARITY_THRESHOLD:
                         sim_pct = int(effective_sim * 100)
                         norm_cur = file_path.replace('\\', '/').lstrip('/')
