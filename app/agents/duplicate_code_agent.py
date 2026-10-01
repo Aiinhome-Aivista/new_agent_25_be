@@ -53,8 +53,8 @@ class DuplicateCodeAgent:
             if not added_lines:
                 continue
 
-            # Chunk added code using function boundaries + sliding window with REAL line tracking
-            chunks = cls._chunk_added_lines(added_lines, language)
+            # Chunk added code using strict function boundaries (no sliding window)
+            chunks = cls._extract_function_units(added_lines, language)
 
             for chunk_text, start_line, end_line in chunks:
                 if len(chunk_text.strip().splitlines()) < cls.MIN_CHUNK_LINES:
@@ -99,6 +99,10 @@ class DuplicateCodeAgent:
                         is_class_definition = bool(re.search(r'\b(class|interface|record|enum)\b', chunk_text))
 
                         if is_same_file:
+                            if start_line <= match['end_line'] and end_line >= match['start_line']:
+                                # Overlapping block in the same file means it's the exact same code, not a duplicate
+                                continue
+                                
                             message = f"Duplicate logic detected ({sim_pct}% similarity with line {match['start_line']}-{match['end_line']} in the same file)."
                             if is_class_definition:
                                 suggestion = (
@@ -355,52 +359,130 @@ class DuplicateCodeAgent:
         return added_lines
 
     @classmethod
-    def _chunk_added_lines(cls, added_lines: List[Dict[str, Any]], language: str = "general") -> List[Tuple[str, int, int]]:
+    def _extract_function_units(cls, added_lines: List[Dict[str, Any]], language: str) -> List[Tuple[str, int, int]]:
         """
-        Chunk added code by function/method boundary first, and then with a sliding window,
-        preserving the EXACT real start_line and end_line in the modified file.
-        Returns: List of (chunk_text, start_line, end_line)
+        Extracts pure function/method boundaries from added lines.
+        Returns List of (function_text, start_line, end_line)
         """
         if not added_lines:
             return []
 
         chunks: List[Tuple[str, int, int]] = []
-        seen_texts = set()
+        lang = language.lower()
+        
+        # Python uses indentation
+        if lang == "python":
+            current_func = []
+            base_indent = -1
+            start_line = -1
+            for item in added_lines:
+                line_no = item["line_no"]
+                content = item["content"]
+                stripped = content.strip()
+                
+                # Ignore imports
+                if stripped.startswith(("import ", "from ")) and base_indent == -1:
+                    continue
+                    
+                # Check for start of def or class or variable assignment
+                if re.match(r'^(\s*)(?:def|class)\s+\w+', content) and base_indent == -1:
+                    m = re.match(r'^(\s*)(?:def|class)', content)
+                    base_indent = len(m.group(1))
+                    start_line = line_no
+                    current_func.append(content)
+                    continue
+                elif re.match(r'^(\s*)[a-zA-Z0-9_]+\s*=\s*(?:\[|\{)', content) and base_indent == -1:
+                    m = re.match(r'^(\s*)', content)
+                    base_indent = len(m.group(1))
+                    start_line = line_no
+                    current_func.append(content)
+                    continue
+                
+                if base_indent != -1:
+                    if stripped == "":
+                        current_func.append(content)
+                        continue
+                    
+                    m = re.match(r'^(\s*)', content)
+                    current_indent = len(m.group(1)) if m else 0
+                    if current_indent <= base_indent and not stripped.startswith(")") and not stripped.startswith("]") and not stripped.startswith("}") and not stripped.startswith('"""') and not stripped.startswith("'''"):
+                        # Block ended
+                        txt = "\n".join(current_func).strip()
+                        if txt:
+                            chunks.append((txt, start_line, line_no - 1))
+                        current_func = []
+                        base_indent = -1
+                        start_line = -1
+                        # Re-evaluate line
+                        if re.match(r'^(\s*)(?:def|class)\s+\w+', content) or re.match(r'^(\s*)[a-zA-Z0-9_]+\s*=\s*(?:\[|\{)', content):
+                            m = re.match(r'^(\s*)', content)
+                            base_indent = len(m.group(1)) if m else 0
+                            start_line = line_no
+                            current_func.append(content)
+                    else:
+                        current_func.append(content)
+                        
+            if current_func:
+                txt = "\n".join(current_func).strip()
+                if txt:
+                    chunks.append((txt, start_line, added_lines[-1]["line_no"]))
 
-        full_code = "\n".join(l["content"] for l in added_lines)
-
-        # 1. Function / method boundary chunks
-        try:
-            fn_chunks = codebase_store._chunk_by_function_boundary(full_code, language)
-            for c in fn_chunks:
-                txt = c.get('text', '').strip()
-                if txt and len(txt.splitlines()) >= cls.MIN_CHUNK_LINES:
-                    if txt not in seen_texts:
-                        seen_texts.add(txt)
-                        rel_start_1based = c.get('start_line', 1)
-                        rel_idx = max(0, min(len(added_lines) - 1, rel_start_1based - 1))
-                        real_start_line = added_lines[rel_idx]["line_no"]
-                        line_count = len(txt.splitlines())
-                        end_idx = max(rel_idx, min(len(added_lines) - 1, rel_idx + line_count - 1))
-                        real_end_line = added_lines[end_idx]["line_no"]
-                        chunks.append((txt, real_start_line, real_end_line))
-        except Exception as e:
-            logger.warning(f"Failed to chunk added code by function boundary: {e}")
-
-        # 2. Sliding window chunks (18 lines, step 14)
-        chunk_size = 18
-        i = 0
-        while i < len(added_lines):
-            end_i = min(i + chunk_size, len(added_lines))
-            window_lines = added_lines[i:end_i]
-            chunk_text = "\n".join(l["content"] for l in window_lines).strip()
-            if chunk_text and len(chunk_text.splitlines()) >= cls.MIN_CHUNK_LINES:
-                if chunk_text not in seen_texts:
-                    seen_texts.add(chunk_text)
-                    start_line = window_lines[0]["line_no"]
-                    end_line = window_lines[-1]["line_no"]
-                    chunks.append((chunk_text, start_line, end_line))
-            i += max(1, chunk_size - 4)
+        # Java, JS, TS, Go use curly braces
+        else:
+            in_func = False
+            brace_count = 0
+            start_line = -1
+            current_func = []
+            
+            for item in added_lines:
+                line_no = item["line_no"]
+                content = item["content"]
+                stripped = content.strip()
+                
+                # Ignore imports, packages, standalone annotations when not inside a block
+                if not in_func and (stripped.startswith(("import ", "package ")) or (stripped.startswith("@") and " " not in stripped)):
+                    continue
+                
+                # Detect block signature (method, class, or variable)
+                is_signature = False
+                if not in_func:
+                    if lang == "java" or "java" in lang:
+                        # Match Methods
+                        if re.match(r'^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:public|protected|private|static|final|abstract|synchronized|\s)*\s+[\w<>\[\],\s]+\s+\w+\s*\([^)]*\)\s*(?:throws\s+[\w,\s]+)?\s*\{?', content):
+                            is_signature = True
+                        # Match Classes / Interfaces / Enums
+                        elif re.match(r'^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:public|protected|private|static|final|abstract|\s)*\s+(?:class|interface|record|enum)\s+\w+', content):
+                            is_signature = True
+                        # Match Arrays/Variables opening brace
+                        elif re.match(r'^\s*(?:public|protected|private|static|final|\s)*\s+[\w<>\[\],\s]+\s+\w+\s*=\s*\{?', content) and "{" in content:
+                            is_signature = True
+                    elif lang == "go":
+                        if re.match(r'^\s*func\s+(?:\([^)]*\)\s+)?\w+\s*\([^)]*\)\s*(?:[\w\s*\[\],()]+)?\s*\{?', content) or re.match(r'^\s*type\s+\w+\s+(?:struct|interface)\s*\{?', content) or re.match(r'^\s*var\s+\w+\s+.*?\{', content):
+                            is_signature = True
+                    elif lang in ("typescript", "javascript"):
+                        if re.match(r'^\s*(?:async\s+)?(?:function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>))\s*\{?', content) or re.match(r'^\s*(?:public|private|protected|async|\s)*\w+\s*\([^)]*\)\s*(?::\s*[\w<>\[\]\s|&]+)?\s*\{?', content) or re.match(r'^\s*(?:export\s+)?(?:class|interface|enum|type)\s+\w+', content) or re.match(r'^\s*(?:const|let|var)\s+\w+\s*(?::\s*[^=]+)?\s*=\s*(?:\[|\{)', content):
+                            is_signature = True
+                            
+                    if is_signature:
+                        in_func = True
+                        start_line = line_no
+                        brace_count = 0
+                        current_func = []
+                
+                if in_func:
+                    current_func.append(content)
+                    clean_content = re.sub(r'".*?"|\'.*?\'|//.*|/\*.*?\*/', '', content)
+                    brace_count += clean_content.count('{')
+                    brace_count -= clean_content.count('}')
+                    
+                    if brace_count <= 0 and '{' in "\n".join(current_func):
+                        txt = "\n".join(current_func).strip()
+                        if txt:
+                            chunks.append((txt, start_line, line_no))
+                        in_func = False
+                        brace_count = 0
+                        current_func = []
+                        start_line = -1
 
         return chunks
 

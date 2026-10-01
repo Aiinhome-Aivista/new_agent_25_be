@@ -88,6 +88,7 @@ Critical Review Guidelines:
    - Security vulnerabilities (e.g. binding to 0.0.0.0, SQL injection, eval/exec execution, secrets/tokens, command injection, XSS). Do NOT hallucinate SQL injection for simple string concatenation unless it is demonstrably inside a database query execution method (like `executeQuery`).
    - Logic bugs, runtime exceptions, missing null/type checks, unhandled edge cases.
    - Resource management (unclosed sockets, connections, files).
+   - Spring Boot specific: Controller endpoints accepting complex DTOs (e.g., classes ending in `Request`) MUST have `@Valid` or `@Validated` annotations. If they are missing, report it as a WARNING, regardless of whether `@RequestBody` is present and regardless of whether the parameter spans multiple lines.
    - Ignore minor formatting, spacing, or whitespace issues (like empty lines). Do NOT report them as issues.
 3. Grounding & Line Accuracy:
    - The diff above contains explicit `Line <number>:` prefixes. You MUST use the exact line number from `Line <number>:` for the `line` property.

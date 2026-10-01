@@ -50,7 +50,8 @@ class SASTScanner:
         {
             "id": "QUAL-JAVA-VALID-01",
             "name": "Missing @Valid on Request Body",
-            "pattern": r"""@PostMapping|@PutMapping|@PatchMapping.*?public.*?(@RequestBody(?!\s*@Valid\s+)[A-Z][a-zA-Z0-9]+)""",
+            # Checks that the line contains @RequestBody but DOES NOT contain @Valid or @Validated anywhere
+            "pattern": r"""^(?!.*(?:@Valid|@Validated)).*@RequestBody\s+[A-Z][a-zA-Z0-9]+""",
             "severity": "WARNING",
             "is_blocking": False,
             "message": "Controller endpoint accepts @RequestBody without @Valid or @Validated annotation.",
