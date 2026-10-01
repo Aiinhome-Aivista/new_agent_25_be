@@ -361,73 +361,12 @@ class SyntaxChecker:
                 continue
 
             # 6. Check for Missing Semicolons on Executable Statements (SYNTAX-JAVA-MISSING-SEMICOLON)
-            if cls._is_java_statement_missing_semicolon(stripped):
-                corrected = stripped + ";"
-                findings.append({
-                    "file": file_path,
-                    "line": line_no,
-                    "severity": "CRITICAL",
-                    "category": "Syntax Error",
-                    "rule_id": "SYNTAX-JAVA-MISSING-SEMICOLON",
-                    "message": f"Missing semicolon ';' at the end of Java statement '{stripped}'.",
-                    "suggestion": f"Terminate the statement with a semicolon: '{corrected}'.",
-                    "fix_code": corrected,
-                    "evidence": raw_content,
-                    "is_blocking": True,
-                    "source_tool": "syntax_checker"
-                })
-                continue
+            # Removed because line-by-line checking causes severe false positives on multi-line statements (like fluent builders). 
+            # The AI LLM handles missing semicolons contextually via CODE_QUALITY_PROMPT.
 
         return findings
 
-    @classmethod
-    def _is_java_statement_missing_semicolon(cls, stripped: str) -> bool:
-        if not stripped:
-            return False
-
-        # If already ends with valid terminator or continuation tokens
-        if stripped.endswith((";", "{", "}", ",", ":", "(", "[", "\\", "+", "-", "*", "/", "&&", "||", ".", "?", "->")):
-            return False
-
-        # Annotations or comments
-        if stripped.startswith(("@", "//", "/*", "*", "*/")):
-            return False
-
-        # Control flow headers
-        if stripped.startswith((
-            "if ", "if(", "else", "for ", "for(", "while ", "while(",
-            "do", "try", "catch ", "catch(", "finally", "switch ", "switch(",
-            "case ", "default:"
-        )):
-            return False
-
-        # Class / Interface / Record / Enum declarations
-        if any(stripped.startswith(prefix) for prefix in (
-            "class ", "public class ", "private class ", "protected class ", "abstract class ",
-            "interface ", "public interface ", "private interface ",
-            "enum ", "public enum ", "private enum ",
-            "record ", "public record ", "private record ",
-            "@interface ", "public @interface "
-        )):
-            return False
-
-        # Explicit statement types that ALWAYS require semicolon
-        if stripped.startswith(("return", "throw ", "import ", "package ", "break", "continue")):
-            return True
-
-        # Variable assignments (e.g. `int x = 10` or `this.name = "John"`)
-        if "=" in stripped and not stripped.startswith(("==", "!=", "<=", ">=")):
-            return True
-
-        # Field declarations with modifiers (e.g. `private Long id`, `public String name`)
-        if re.match(r'^(?:(?:public|private|protected|static|final|volatile|transient)\s+)+[a-zA-Z0-9_<>,\[\]\s]+\s+[a-zA-Z0-9_$]+$', stripped):
-            return True
-
-        # Method calls: e.g. `System.out.println("Hello")` or `userRepository.save(user)` or `doSomething()`
-        if stripped.endswith(")") and not re.match(r'^(?:public|private|protected|static|final|abstract|void|int|long|boolean|double|float|char|byte|short)\b', stripped):
-            return True
-
-        return False
+    # _is_java_statement_missing_semicolon removed to prevent false positives
 
     @classmethod
     def _check_js_ts_file(cls, cf: ChangedFile, file_path: str, lang: str = "javascript") -> List[Dict[str, Any]]:
