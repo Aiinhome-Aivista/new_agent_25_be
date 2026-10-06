@@ -69,23 +69,7 @@ class SyntaxChecker:
             if not stripped:
                 continue
 
-            if stripped.startswith("#"):
-                comment_text = stripped[1:].strip()
-                if len(comment_text) > 8 and " " not in comment_text and not comment_text.startswith("http"):
-                    findings.append({
-                        "file": file_path,
-                        "line": line_no,
-                        "severity": "WARNING",
-                        "category": "Documentation",
-                        "rule_id": "PY-DOC-003",
-                        "message": f"Inline comment '{stripped}' appears to be meaningless gibberish. Comments should explain the 'Why' behind the code.",
-                        "suggestion": "Remove the meaningless comment or replace it with a descriptive explanation.",
-                        "fix_code": "",
-                        "evidence": raw_content,
-                        "is_blocking": False,
-                        "source_tool": "syntax_checker"
-                    })
-                continue
+
 
             # Check 1: Unclosed Parentheses / Call Syntax removed to prevent false positives on multi-line statements.
 
@@ -243,23 +227,7 @@ class SyntaxChecker:
             if not stripped:
                 continue
 
-            # 1. Check for Inline comment specificity / gibberish (JAVA-DOC-003)
             if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
-                comment_text = stripped.lstrip("/*# ").rstrip("*/ ").strip()
-                if len(comment_text) > 8 and " " not in comment_text and not comment_text.startswith("http"):
-                    findings.append({
-                        "file": file_path,
-                        "line": line_no,
-                        "severity": "WARNING",
-                        "category": "Documentation",
-                        "rule_id": "JAVA-DOC-003",
-                        "message": f"Inline comment '{stripped}' appears to be meaningless gibberish. Comments should explain the 'Why' behind the code.",
-                        "suggestion": "Remove the meaningless comment or replace it with a descriptive explanation.",
-                        "fix_code": "",
-                        "evidence": raw_content,
-                        "is_blocking": False,
-                        "source_tool": "syntax_checker"
-                    })
                 continue
 
             # Ignore annotations
@@ -428,7 +396,7 @@ class SyntaxChecker:
             # 1. Inline comment check
             if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
                 comment_text = stripped.lstrip("/*# ").rstrip("*/ ").strip()
-                if len(comment_text) > 8 and " " not in comment_text and not comment_text.startswith("http"):
+                if len(comment_text) > 8 and " " not in comment_text and not comment_text.startswith("http") and not any(c in comment_text for c in "().=;"):
                     findings.append({
                         "file": file_path,
                         "line": line_no,

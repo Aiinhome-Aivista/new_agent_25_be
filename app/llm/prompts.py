@@ -81,7 +81,8 @@ Critical Review Guidelines:
 1. Exhaustive Inspection: Examine the entire diff line by line. If the diff contains multiple distinct errors/bugs across different lines, you MUST report ALL of them as separate entries in the `issues` array.
 2. Defect Scope: Inspect modified code for:
    - Syntax errors, missing semicolons in Java/JS/TS, unclosed brackets/parentheses/quotes, stray tokens, gibberish identifiers, typos, and bad conventions Do NOT flag a missing semicolon on every line if a single code statement simply spans multiple lines (e.g. Builder patterns, string concats).
-   - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg` or `// kjhgkjgh;kjbhg`) should be reported as Rule ID `DOC-003` / `PY-DOC-003` / `JAVA-DOC-003` (Inline Comment Specificity) with a fix to delete them (`fix_code: ""`). Do NOT treat comments as code or unused variables.
+   - Dead Code / Commented-out Code Blocks: If you see multiple consecutive lines of code that are commented out (e.g., starting with `//` or `#`), you MUST group them all together into ONE SINGLE issue. Set `line` to the first commented line, `end_line` to the last commented line in the block, and provide a single fix (`fix_code: ""`) to remove the entire block at once. NEVER report consecutive commented-out lines individually. In the `message`, explicitly state the range of lines that are commented out (e.g., "Lines 20 to 50 contain commented-out code that should be removed.").
+   - Meaningless or gibberish inline comments (e.g., `#kjhgkjgh;kjbhg`): Report as Rule ID `DOC-003` with a fix to delete them. VERY IMPORTANT: Do NOT use this rule to flag commented-out code blocks line-by-line!
    - Code duplication / redundancy: Carefully analyze the whole codebase context provided. Only flag code as a duplicate if the exact or highly similar logic actually exists elsewhere. Avoid false positives: do NOT flag coincidental structural similarities if the business contexts are completely different. Suggest refactoring repeated logic into a shared reusable utility function. Set "fix_code": null for refactoring suggestions.
    - Modern Language Features: You MUST check the provided 'Target Language' and 'Target Language Version'. Strongly prefer the most modern features and syntax available in that specific version. If the code uses outdated syntax that has a cleaner, more modern alternative in the provided version, you MUST flag the outdated syntax as a Quality issue and provide the FULL modernized code snippet in `fix_code`. Do NOT leave `fix_code` empty for syntax upgrades.
    - Undefined Methods & Missing Functions: You MUST verify that every single method called on a dependency (e.g. `userService.patchUser(...)` or `policyService.uploadPolicy(...)`) actually exists in the codebase context. If the method is NOT explicitly defined in its respective class (e.g., if `patchUser` is missing from `UserService`), you MUST report a CRITICAL issue stating: "The method is undefined/does not exist in the codebase." with `fix_code: null`. Do not assume the method exists if you cannot see it.
@@ -96,7 +97,7 @@ Critical Review Guidelines:
 4. For EVERY detected issue:
    - Explain clearly WHY it is an issue in `message`.
    - Provide concrete, step-by-step remediation advice in `suggestion` (focusing on modular reusability for duplicate logic).
-   - `evidence` MUST contain the EXACT snippet of original code from the diff that needs to be replaced. This MUST perfectly match the actual code in the file (including formatting) so the UI can safely find and replace it.
+   - `evidence` MUST contain the EXACT snippet of original code from the diff that needs to be replaced. This MUST perfectly match the actual code in the file (including formatting) so the UI can safely find and replace it. For multi-line blocks, the evidence must span the entire block.
    - `fix_code` MUST BE EXCLUSIVELY VALID EXECUTABLE CODE (e.g. `if __name__ == "__main__":` or `return user;` or `host=os.getenv("HOST", "127.0.0.1")` or `""` to remove a stray line). It should act as a direct drop-in replacement for the `evidence` text. NEVER write plain English sentences or explanations in `fix_code`! If no code replacement is applicable, set `"fix_code": null`.
    - If your fix is for a single line, DO NOT include `end_line` in the issue object (or set it equal to `line`). If you specify `end_line` for a block replacement, your `fix_code` MUST contain the FULL code replacement for the ENTIRE block, and `evidence` must contain the FULL block to be replaced.
 
@@ -106,6 +107,7 @@ Respond ONLY with a valid JSON object matching this exact schema (no markdown wr
     {{
       "file": "path/to/file.java",
       "line": 107,
+      "end_line": 110,
       "severity": "CRITICAL", // INFO, WARNING, ERROR, CRITICAL
       "category": "Syntax Error", // Security, Quality, Standards, Bug, Error Handling, Syntax Error
       "rule_id": "SYNTAX-JAVA-MISSING-SEMICOLON",
