@@ -92,6 +92,7 @@ class LLMProvider:
             "contents": contents,
             "generationConfig": {
                 "temperature": 0.2,
+                "maxOutputTokens": 4096,
                 "responseMimeType": "application/json"
             }
         }
@@ -139,6 +140,7 @@ class LLMProvider:
             "model": model,
             "messages": messages,
             "temperature": 0.2,
+            "max_tokens": 4096,
             "response_format": {"type": "json_object"} if config.MISTRAL_API_KEY else None
         }
 
